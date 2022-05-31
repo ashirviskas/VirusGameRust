@@ -1,0 +1,2 @@
+# VirusGameRust
+VirusGame in Rust
