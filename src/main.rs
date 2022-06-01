@@ -20,6 +20,8 @@ const BOUNDARY_THICKNESS: f32 = 10.0;
 
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
 const FOOD_SIZE: f32 = 8.0;
+const FOOD_ENERGY: f32 = 10.0;
+const DEFAULT_CELL_ENERGY: f32 = 100.0;
 // These values are exact
 const GAP_BETWEEN_CELLS: f32 = 1.0;
 
@@ -43,8 +45,8 @@ fn main() {
                 .with_system(apply_velocity.before(check_for_collisions)),
         )
         .add_system(bevy::input::system::exit_on_esc_system)
-        // .add_system(energy_system)
-        // .add_system(size_system)
+        .add_system(energy_system)
+        .add_system(energy_size_system)
         .add_system(food_dispenser)
         .run();
 }
@@ -140,16 +142,18 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
 
 fn energy_system(mut query: Query<&mut Energy>){
     for mut energy in query.iter_mut() {
-        energy.value -= 0.001;
+        if energy.value > 0.0 {
+            energy.value -= 0.05;
         // println!("Energy: {}", energy.value);
+        }
     }
 }
 
 // for entities with energy, we will change their size depending on their energy
-fn size_system(mut query: Query<(&Energy, &mut Transform)>) {
+fn energy_size_system(mut query: Query<(&Energy, &mut Transform)>) {
     for (energy, mut transform) in query.iter_mut() {
-        let scale_x = energy.value * CELL_SIZE.x;
-        let scale_y = energy.value * CELL_SIZE.y;
+        let scale_x = energy.value * CELL_SIZE.x / DEFAULT_CELL_ENERGY;
+        let scale_y = energy.value * CELL_SIZE.y / DEFAULT_CELL_ENERGY;
         transform.scale = Vec3::new(scale_x, scale_y, 1.0);
     }
 }
@@ -212,7 +216,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     })
                     .insert(Collider)
                     .insert(Cell)
-                    .insert(Energy{value: 1.0});
+                    .insert(Energy{value: DEFAULT_CELL_ENERGY});
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -247,6 +251,7 @@ fn check_for_collisions(
     mut particle_query: Query<(&mut Velocity, &Transform), With<Particle>>,
     collider_query: Query<&Transform, (With<Collider>, Without<Particle>)>,
     mut collision_events: EventWriter<CollisionEvent>,
+
 ) {
     if particle_query.iter().count() == 0 {
         return;
@@ -256,7 +261,7 @@ fn check_for_collisions(
     let particle_size: Vec2 = const_vec2!([FOOD_SIZE, FOOD_SIZE]);
     for (mut particle_velocity, particle_transform) in particle_query.iter_mut() {
     // check collision with walls
-        for transform in collider_query.iter() {
+        for (transform) in collider_query.iter() {
             let collision = collide(
                 particle_transform.translation,
                 particle_size,
@@ -266,6 +271,15 @@ fn check_for_collisions(
             if let Some(collision) = collision {
                 // Sends a collision event so that other systems can react to the collision
                 collision_events.send_default();
+
+                // if maybe_food.is_some() {
+                //     if maybe_cell.is_some(){
+                //         let mut cell = maybe_cell.as_mut().unwrap();
+                //         // cell.value += FOOD_ENERGY;
+                //         commands.entity(collider_entity).despawn();
+                    
+                //     }
+                // }
 
 
                 // reflect the ball when it collides
