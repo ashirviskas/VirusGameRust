@@ -2,32 +2,35 @@
 [VirusGame](https://github.com/carykh/VirusGame/) with a spin on it, rewritten in Rust and Bevy.
 
 ## Todos
-[x] - Implement cells/walls that do nothing lol
-[x] - Implement particle functionality
-[ ] - Implement food spawner
-[ ] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> to get more energy, free itself up from waste)
-[ ] - Implement simple genes (OG VirusGame basis) functionality
-[ ] - Implement cell walls
-[ ] - Mutations
-[ ] - Implement codons visual representation
-[ ] - Implement UGOs
-[ ] - Implement more advanced waste/ugo removal system
-[ ] - Implement advanced genes functionality ()
-[ ] - Implement multiplication for cells
-[ ] - GUI editor for cell genes/ugos
-[ ] - Speed controls (play/pause, faster, slower)
-[ ] - Simulation settings in general
-[ ] - Stats (alive, mutations, "natural" vs "replicated")
+
+- [x] - Implement cells/walls that do nothing lol
+- [x] - Implement particle functionality
+- [ ] - Implement food spawner
+- [ ] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> to get more energy, free itself up from waste)
+- [ ] - Implement simple genes (OG VirusGame basis) functionality
+- [ ] - Implement cell walls
+- [ ] - Mutations
+- [ ] - Implement codons visual representation
+- [ ] - Implement UGOs
+- [ ] - Implement more advanced waste/ugo removal system
+- [ ] - Implement advanced genes functionality ()
+- [ ] - Implement multiplication for cells
+- [ ] - GUI editor for cell genes/ugos
+- [ ] - Speed controls (play/pause, faster, slower)
+- [ ] - Simulation settings in general
+- [ ] - Stats (alive, mutations, "natural" vs "replicated")
+
 ## Nice to haves
-[ ] - Write up what genes do
-[ ] - Graphs for stats
-[ ] - Gene stats + graphs (most common snips, gene strings)
-[ ] - More complex genes (regulate mutation rate, cell ticking rate, etc.)
-[ ] - Food production/storage by cells themselves
-[ ] - Toggle to use only original genes + functionality (maybe)
-[ ] - World exporting/importing
-[ ] - Cell/organism importing/exporting
-[ ] - Cell communication (hormones/pheromones)
+
+- [ ] - Write up what genes do
+- [ ] - Graphs for stats
+- [ ] - Gene stats + graphs (most common snips, gene strings)
+- [ ] - More complex genes (regulate mutation rate, cell ticking rate, etc.)
+- [ ] - Food production/storage by cells themselves
+- [ ] - Toggle to use only original genes + functionality (maybe)
+- [ ] - World exporting/importing
+- [ ] - Cell/organism importing/exporting
+- [ ] - Cell communication (hormones/pheromones)
 
 
 
