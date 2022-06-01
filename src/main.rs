@@ -6,38 +6,46 @@ use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
 };
+use rand::prelude::*;
+use bevy_prototype_lyon::prelude::*;
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 60.0;
 
-const WORLD_SIZE: f32 = 1000.0;
+const WORLD_SIZE: f32 = 800.0;
 const WORLD_SCALE: f32 = 1.0;
+const MAX_FOOD: usize = 1200;
 
 const BOUNDARY_THICKNESS: f32 = 10.0;
 
-const CELL_SIZE: Vec2 = const_vec2!([8., 8.]);
+const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
+const FOOD_SIZE: f32 = 8.0;
 // These values are exact
 const GAP_BETWEEN_CELLS: f32 = 1.0;
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
+const FOOD_COLOR: Color = Color::rgb(0.9, 0.1, 0.2);
 
 fn main() {
     App::new()
+        .insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
+        .add_plugin(ShapePlugin)
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_event::<CollisionEvent>()
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-                // .with_system(check_for_collisions)
+                .with_system(check_for_collisions)
                 // .with_system(move_paddle.before(check_for_collisions))
-                // .with_system(apply_velocity.before(check_for_collisions)),
+                .with_system(apply_velocity.before(check_for_collisions)),
         )
         .add_system(bevy::input::system::exit_on_esc_system)
-        .add_system(energy_system)
-        .add_system(size_system)
+        // .add_system(energy_system)
+        // .add_system(size_system)
+        .add_system(food_dispenser)
         .run();
 }
 
@@ -70,16 +78,8 @@ struct LooptaroundEvent;
 #[derive(Component)]
 struct Cell;
 
-// This bundle is a collection of the components that define a "wall" in our game
-#[derive(Bundle)]
-struct WallBundle {
-    // You can nest bundles inside of other bundles like this
-    // Allowing you to compose their functionality
-    #[bundle]
-    sprite_bundle: SpriteBundle,
-    collider: Collider,
-    looptarounder: Looptarounder,
-}
+#[derive(Component)]
+struct Food;
 
 /// Which side of the arena is this wall located on?
 enum WallLocation {
@@ -138,7 +138,7 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
 fn energy_system(mut query: Query<&mut Energy>){
     for mut energy in query.iter_mut() {
         energy.value -= 0.001;
-        println!("Energy: {}", energy.value);
+        // println!("Energy: {}", energy.value);
     }
 }
 
@@ -169,15 +169,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let n_rows = (WORLD_SIZE * WORLD_SCALE / (CELL_SIZE.y + GAP_BETWEEN_CELLS)).floor() as usize;
     let n_vertical_gaps = n_columns - 1;
 
-    // Because we need to round the number of columns,
-    // the space on the top and sides of the bricks only captures a lower bound, not an exact value
-    let center_of_bricks = 0.0;
-    let left_edge_of_bricks = center_of_bricks
-        // Space taken up by the bricks
-        - (n_columns as f32 / 2.0 * CELL_SIZE.x)
-        // Space taken up by the gaps
-        - n_vertical_gaps as f32 / 2.0 * GAP_BETWEEN_CELLS;
-
     // In Bevy, the `translation` of an entity describes the center point,
     // not its bottom-left corner
     let offset_x = CELL_SIZE.x - (WORLD_SIZE * WORLD_SCALE / 2.);
@@ -199,7 +190,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 
 
 
-            // brick
+            // cell
             if cell_type == CellType::Cell {
                 commands
                     .spawn()
@@ -249,49 +240,87 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
 
 fn check_for_collisions(
     mut commands: Commands,
-    mut ball_query: Query<(&mut Velocity, &mut Transform), With<Particle>>,
-    collider_query: Query<(Entity, &Transform, Option<&Cell>), (With<Collider>, Without<Particle>)>,
+    mut particle_query: Query<(&mut Velocity, &Transform), With<Particle>>,
+    collider_query: Query<&Transform, (With<Collider>, Without<Particle>)>,
     mut collision_events: EventWriter<CollisionEvent>,
 ) {
-    let (mut ball_velocity, mut ball_transform) = ball_query.single_mut();
-    let ball_size = ball_transform.scale.truncate();
-
+    if particle_query.iter().count() == 0 {
+        return;
+    }
+    // let (mut ball_velocity, ball_transform) = particle_query.single_mut();
+    // let ball_size = ball_transform.scale.truncate();
+    let particle_size: Vec2 = const_vec2!([FOOD_SIZE, FOOD_SIZE]);
+    for (mut particle_velocity, particle_transform) in particle_query.iter_mut() {
     // check collision with walls
-    for (collider_entity, transform, maybe_brick) in collider_query.iter() {
-        let collision = collide(
-            ball_transform.translation,
-            ball_size,
-            transform.translation,
-            transform.scale.truncate(),
-        );
-        if let Some(collision) = collision {
-            // Sends a collision event so that other systems can react to the collision
-            collision_events.send_default();
+        for transform in collider_query.iter() {
+            let collision = collide(
+                particle_transform.translation,
+                particle_size,
+                transform.translation,
+                transform.scale.truncate(),
+            );
+            if let Some(collision) = collision {
+                // Sends a collision event so that other systems can react to the collision
+                collision_events.send_default();
 
 
-            // reflect the ball when it collides
-            let mut collide_x = false;
-            let mut collide_y = false;
+                // reflect the ball when it collides
+                let mut collide_x = false;
+                let mut collide_y = false;
 
-            // only reflect if the ball's velocity is going in the opposite direction of the
-            // collision
-            match collision {
-                Collision::Left => collide_x = ball_velocity.x > 0.0,
-                Collision::Right => collide_x = ball_velocity.x < 0.0,
-                Collision::Top => collide_y = ball_velocity.y < 0.0,
-                Collision::Bottom => collide_y = ball_velocity.y > 0.0,
-                Collision::Inside => { /* do nothing */ }
+                // only reflect if the ball's velocity is going in the opposite direction of the
+                // collision
+                match collision {
+                    Collision::Left => collide_x = particle_velocity.x > 0.0,
+                    Collision::Right => collide_x = particle_velocity.x < 0.0,
+                    Collision::Top => collide_y = particle_velocity.y < 0.0,
+                    Collision::Bottom => collide_y = particle_velocity.y > 0.0,
+                    Collision::Inside => { /* do nothing */ }
+                }
+
+                if collide_x {
+                    particle_velocity.x = -particle_velocity.x;
+                }
+
+                // reflect velocity on the y-axis if we hit something on the y-axis
+                if collide_y {
+                    particle_velocity.y = -particle_velocity.y;
+                }
+                if collide_y || collide_x {
+                    break;
+                }
             }
-
-            if collide_x {
-                ball_velocity.x = -ball_velocity.x;
-            }
-
-            // reflect velocity on the y-axis if we hit something on the y-axis
-            if collide_y {
-                ball_velocity.y = -ball_velocity.y;
-            }
-            
         }
+    }
+}
+
+fn food_dispenser(mut commands: Commands, food_query: Query<(&Particle, &Food)>) {
+    // Check if we have enough food
+    let center_vec = Vec2::new(0., 0.);
+    if food_query.iter().count() < MAX_FOOD {
+        let random_food_position = Vec2::new(random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0, random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0);
+        let shape = shapes::Circle{
+            radius: FOOD_SIZE / 2.0,
+            center: center_vec,
+        };
+        let random_direction = Vec2::new(random::<f32>() * 50.0 - 25.0, random::<f32>() * 50.0 - 25.0);
+
+        commands
+        .spawn_bundle(GeometryBuilder::build_as(
+            &shape,
+            DrawMode::Outlined {
+                fill_mode: FillMode::color(FOOD_COLOR),
+                outline_mode: StrokeMode::new(Color::BLACK, 0.),
+            },
+            Transform {
+                translation: random_food_position.extend(0.0),
+                scale: Vec3::new(1.0, 1.0, 1.0),
+                ..default()
+            },
+        ))
+        .insert(Food)
+        .insert(Collider)
+        .insert(Velocity(random_direction))
+        .insert(Particle);
     }
 }
