@@ -79,6 +79,9 @@ struct LooptaroundEvent;
 struct Cell;
 
 #[derive(Component)]
+struct Wall;
+
+#[derive(Component)]
 struct Food;
 
 /// Which side of the arena is this wall located on?
@@ -225,7 +228,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         },
                         ..default()
                     })
-                    .insert(Collider);
+                    .insert(Collider)
+                    .insert(Wall);
             }
         }
     }
@@ -294,11 +298,34 @@ fn check_for_collisions(
     }
 }
 
-fn food_dispenser(mut commands: Commands, food_query: Query<(&Particle, &Food)>) {
+fn food_dispenser(mut commands: Commands, food_query: Query<(&Particle, &Food)>, cells_query: Query<&Transform, (With<Collider>, Without<Food>)>) {
     // Check if we have enough food
     let center_vec = Vec2::new(0., 0.);
+    let food_size_vec = Vec2::new(FOOD_SIZE, FOOD_SIZE);
     if food_query.iter().count() < MAX_FOOD {
-        let random_food_position = Vec2::new(random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0, random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0);
+        let mut random_food_position: Vec2 = Vec2::new(0., 0.);
+        while true {
+            let mut found_empty_spot = true;
+            random_food_position = Vec2::new(random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0, random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0);
+            for cell_transform in cells_query.iter() {
+                let collision = collide(
+                    random_food_position.extend(1.0),
+                    food_size_vec,
+                    cell_transform.translation,
+                    cell_transform.scale.truncate(),
+                );
+                if let Some(collision) = collision {
+                    // printing collision details
+                    // println!("Collision: {:?}", random_food_position);
+                    found_empty_spot = false;
+                    break;
+                }          
+            }
+            if found_empty_spot {
+                // println!("Found empty spot: {:?}", random_food_position);
+                break;
+            }
+        }
         let shape = shapes::Circle{
             radius: FOOD_SIZE / 2.0,
             center: center_vec,
