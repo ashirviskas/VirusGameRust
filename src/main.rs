@@ -6,8 +6,8 @@ use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
 };
-use rand::prelude::*;
 use bevy_prototype_lyon::prelude::*;
+use rand::prelude::*;
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 60.0;
@@ -18,7 +18,7 @@ const MAX_FOOD: usize = 1200;
 
 const BOUNDARY_THICKNESS: f32 = 10.0;
 
-const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
+const CELL_SIZE: Vec2 = const_vec2!([30., 30.]);
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 10.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
@@ -41,12 +41,12 @@ fn main() {
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
                 .with_system(check_for_collisions)
-                // .with_system(move_paddle.before(check_for_collisions))
-                .with_system(apply_velocity.before(check_for_collisions)),
+                .with_system(apply_velocity.before(check_for_collisions))
+                .with_system(loop_around),
         )
         .add_system(bevy::input::system::exit_on_esc_system)
         .add_system(energy_system)
-        .add_system(energy_size_system)
+        .add_system(energy_color_system)
         .add_system(food_dispenser)
         .run();
 }
@@ -59,7 +59,9 @@ struct Particle;
 
 #[derive(Component)]
 struct Energy {
-    value: f32,
+    value: f32,      // 0.0 - 100.0
+    max_energy: f32, // maximum amount of energy
+    waste: f32, // generated waste that needs to be cleared. If 0.0, then the cell can have max_energy, if > 0.0, then the cell can have max_energy - waste
 }
 
 #[derive(Component, Deref, DerefMut)]
@@ -94,6 +96,7 @@ enum WallLocation {
     Top,
 }
 
+#[derive(Component)]
 #[derive(PartialEq)]
 enum CellType {
     Empty,
@@ -123,7 +126,7 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
     let mut result = 0;
     let mut i = 1;
     while i < world_size {
-        if (xx/i)%3 == 1 && (yy/i)%3 == 1 {
+        if (xx / i) % 3 == 1 && (yy / i) % 3 == 1 {
             result = 1;
             let x_part = xx % i;
             let y_part = yy % i;
@@ -135,29 +138,29 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
                 result = 2;
             }
         }
-        i *= 3; 
+        i *= 3;
     }
     return result;
 }
 
-fn energy_system(mut query: Query<&mut Energy>){
+fn energy_system(mut query: Query<&mut Energy>) {
     for mut energy in query.iter_mut() {
         if energy.value > 0.0 {
             energy.value -= 0.05;
-        // println!("Energy: {}", energy.value);
+            // println!("Energy: {}", energy.value);
         }
     }
 }
 
 // for entities with energy, we will change their size depending on their energy
-fn energy_size_system(mut query: Query<(&Energy, &mut Transform)>) {
-    for (energy, mut transform) in query.iter_mut() {
-        let scale_x = energy.value * CELL_SIZE.x / DEFAULT_CELL_ENERGY;
-        let scale_y = energy.value * CELL_SIZE.y / DEFAULT_CELL_ENERGY;
-        transform.scale = Vec3::new(scale_x, scale_y, 1.0);
+fn energy_color_system(mut query: Query<(&Energy, &mut Sprite, &CellType)>) {
+    let red = Color::rgb(1.0, 0.0, 0.0);
+    for (energy, mut sprite, cell_type) in query.iter_mut() {
+        let cell_color = cell_type.to_color();
+        let scale = energy.value / DEFAULT_CELL_ENERGY;
+        sprite.color = red * (1.0 - scale) + cell_color * scale;
     }
 }
-
 
 // Add the game's entities to our world
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -188,14 +191,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 0 => CellType::Empty,
                 1 => CellType::Wall,
                 _ => CellType::Cell,
-
             };
             let cell_position = Vec2::new(
                 offset_x + column as f32 * (CELL_SIZE.x + GAP_BETWEEN_CELLS),
                 offset_y + row as f32 * (CELL_SIZE.y + GAP_BETWEEN_CELLS),
             );
-                
-
 
             // cell
             if cell_type == CellType::Cell {
@@ -216,7 +216,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     })
                     .insert(Collider)
                     .insert(Cell)
-                    .insert(Energy{value: DEFAULT_CELL_ENERGY});
+                    .insert(cell_type)
+                    .insert(Energy {
+                        value: DEFAULT_CELL_ENERGY,
+                        max_energy: DEFAULT_CELL_ENERGY,
+                        waste: 0.0,
+                    });
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -233,7 +238,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         ..default()
                     })
                     .insert(Collider)
-                    .insert(Wall);
+                    .insert(Wall)
+                    .insert(cell_type);
             }
         }
     }
@@ -246,12 +252,28 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
     }
 }
 
+fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
+    for (mut transform, velocity) in query.iter_mut() {
+        if transform.translation.x < -WORLD_SIZE * WORLD_SCALE  / 2.0 {
+            transform.translation.x += WORLD_SIZE * WORLD_SCALE;
+        } else if transform.translation.x > WORLD_SIZE * WORLD_SCALE / 2.0 {
+            transform.translation.x -= WORLD_SIZE * WORLD_SCALE;
+        }
+
+        if transform.translation.y < -WORLD_SIZE * WORLD_SCALE  / 2.0 {
+            transform.translation.y += WORLD_SIZE * WORLD_SCALE;
+        } else if transform.translation.y > WORLD_SIZE * WORLD_SCALE / 2.0 {
+            transform.translation.y -= WORLD_SIZE * WORLD_SCALE;
+        }
+    }
+
+}
+
 fn check_for_collisions(
     mut commands: Commands,
-    mut particle_query: Query<(&mut Velocity, &Transform), With<Particle>>,
-    collider_query: Query<&Transform, (With<Collider>, Without<Particle>)>,
+    mut particle_query: Query<(Entity, &mut Velocity, &Transform, Option<&Food>), With<Particle>>,
+    mut collider_query: Query<(&Transform, Option<&mut Energy>), (With<Collider>, Without<Particle>,)>,
     mut collision_events: EventWriter<CollisionEvent>,
-
 ) {
     if particle_query.iter().count() == 0 {
         return;
@@ -259,9 +281,9 @@ fn check_for_collisions(
     // let (mut ball_velocity, ball_transform) = particle_query.single_mut();
     // let ball_size = ball_transform.scale.truncate();
     let particle_size: Vec2 = const_vec2!([FOOD_SIZE, FOOD_SIZE]);
-    for (mut particle_velocity, particle_transform) in particle_query.iter_mut() {
-    // check collision with walls
-        for (transform) in collider_query.iter() {
+    for (particle_entity, mut particle_velocity, particle_transform, maybe_food) in particle_query.iter_mut() {
+        // check collision with walls
+        for (transform, mut maybe_energy) in collider_query.iter_mut() {
             let collision = collide(
                 particle_transform.translation,
                 particle_size,
@@ -272,15 +294,20 @@ fn check_for_collisions(
                 // Sends a collision event so that other systems can react to the collision
                 collision_events.send_default();
 
-                // if maybe_food.is_some() {
-                //     if maybe_cell.is_some(){
-                //         let mut cell = maybe_cell.as_mut().unwrap();
-                //         // cell.value += FOOD_ENERGY;
-                //         commands.entity(collider_entity).despawn();
-                    
-                //     }
-                // }
+                if maybe_food.is_some() {
+                    if maybe_energy.is_some(){
+                        let cell_energy = maybe_energy.as_mut().unwrap();
+                        if cell_energy.value < cell_energy.max_energy {
+                            cell_energy.value += FOOD_ENERGY;
+                            if cell_energy.value > cell_energy.max_energy {
+                                cell_energy.value = cell_energy.max_energy;
+                            }
+                        }
+                        commands.entity(particle_entity).despawn();
+                        break;
 
+                    }
+                }
 
                 // reflect the ball when it collides
                 let mut collide_x = false;
@@ -312,7 +339,11 @@ fn check_for_collisions(
     }
 }
 
-fn food_dispenser(mut commands: Commands, food_query: Query<(&Particle, &Food)>, cells_query: Query<&Transform, (With<Collider>, Without<Food>)>) {
+fn food_dispenser(
+    mut commands: Commands,
+    food_query: Query<(&Particle, &Food)>,
+    cells_query: Query<&Transform, (With<Collider>, Without<Food>)>,
+) {
     // Check if we have enough food
     let center_vec = Vec2::new(0., 0.);
     let food_size_vec = Vec2::new(FOOD_SIZE, FOOD_SIZE);
@@ -320,7 +351,10 @@ fn food_dispenser(mut commands: Commands, food_query: Query<(&Particle, &Food)>,
         let mut random_food_position: Vec2 = Vec2::new(0., 0.);
         while true {
             let mut found_empty_spot = true;
-            random_food_position = Vec2::new(random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0, random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0);
+            random_food_position = Vec2::new(
+                random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0,
+                random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0,
+            );
             for cell_transform in cells_query.iter() {
                 let collision = collide(
                     random_food_position.extend(1.0),
@@ -333,35 +367,36 @@ fn food_dispenser(mut commands: Commands, food_query: Query<(&Particle, &Food)>,
                     // println!("Collision: {:?}", random_food_position);
                     found_empty_spot = false;
                     break;
-                }          
+                }
             }
             if found_empty_spot {
                 // println!("Found empty spot: {:?}", random_food_position);
                 break;
             }
         }
-        let shape = shapes::Circle{
+        let shape = shapes::Circle {
             radius: FOOD_SIZE / 2.0,
             center: center_vec,
         };
-        let random_direction = Vec2::new(random::<f32>() * 50.0 - 25.0, random::<f32>() * 50.0 - 25.0);
+        let random_direction =
+            Vec2::new(random::<f32>() * 50.0 - 25.0, random::<f32>() * 50.0 - 25.0);
 
         commands
-        .spawn_bundle(GeometryBuilder::build_as(
-            &shape,
-            DrawMode::Outlined {
-                fill_mode: FillMode::color(FOOD_COLOR),
-                outline_mode: StrokeMode::new(Color::BLACK, 0.),
-            },
-            Transform {
-                translation: random_food_position.extend(0.0),
-                scale: Vec3::new(1.0, 1.0, 1.0),
-                ..default()
-            },
-        ))
-        .insert(Food)
-        .insert(Collider)
-        .insert(Velocity(random_direction))
-        .insert(Particle);
+            .spawn_bundle(GeometryBuilder::build_as(
+                &shape,
+                DrawMode::Outlined {
+                    fill_mode: FillMode::color(FOOD_COLOR),
+                    outline_mode: StrokeMode::new(Color::BLACK, 0.),
+                },
+                Transform {
+                    translation: random_food_position.extend(0.0),
+                    scale: Vec3::new(1.0, 1.0, 1.0),
+                    ..default()
+                },
+            ))
+            .insert(Food)
+            .insert(Collider)
+            .insert(Velocity(random_direction))
+            .insert(Particle);
     }
 }

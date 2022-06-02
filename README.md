@@ -6,7 +6,7 @@
 - [x] - Implement cells/walls that do nothing lol
 - [x] - Implement particle functionality
 - [x] - Implement food spawner
-- [ ] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> to get more energy, free itself up from waste)
+- [ ] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> free itself up from waste to get more energy)
 - [ ] - Implement simple genes (OG VirusGame basis) functionality
 - [ ] - Implement cell walls
 - [ ] - Mutations
