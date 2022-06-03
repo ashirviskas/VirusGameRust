@@ -16,12 +16,11 @@ const WORLD_SIZE: f32 = 800.0;
 const WORLD_SCALE: f32 = 1.0;
 const MAX_FOOD: usize = 1200;
 
-const BOUNDARY_THICKNESS: f32 = 10.0;
-
-const CELL_SIZE: Vec2 = const_vec2!([30., 30.]);
+const CELL_SIZE: Vec2 = const_vec2!([20., 20.]);
 const FOOD_SIZE: f32 = 8.0;
-const FOOD_ENERGY: f32 = 10.0;
+const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
+const ENERGY_RESOLUTION: f32 = 0.1;
 // These values are exact
 const GAP_BETWEEN_CELLS: f32 = 1.0;
 
@@ -64,6 +63,38 @@ struct Energy {
     waste: f32, // generated waste that needs to be cleared. If 0.0, then the cell can have max_energy, if > 0.0, then the cell can have max_energy - waste
 }
 
+impl Energy {
+    fn new(max_energy: f32) -> Energy {
+        Energy {
+            value: max_energy,
+            max_energy,
+            waste: 0.0,
+        }
+    }
+    // Add energy
+    fn add_energy(&mut self, amount: f32) -> bool {
+        if self.value + self.waste + ENERGY_RESOLUTION >= self.max_energy {
+            false
+        } else if self.value + self.waste + amount > self.max_energy {
+            self.value = self.max_energy - self.waste;
+            true
+        } else {
+            self.value += amount;
+            true
+        }
+    }
+    // Removes energy if available and adds half of it to waste. If energy is not available, returns false.
+    fn remove_energy(&mut self, amount: f32) -> bool {
+        if self.value >= amount {
+            self.value -= amount;
+            self.waste += amount / 1.5;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
 
@@ -96,8 +127,7 @@ enum WallLocation {
     Top,
 }
 
-#[derive(Component)]
-#[derive(PartialEq)]
+#[derive(Component, PartialEq)]
 enum CellType {
     Empty,
     Wall,
@@ -145,10 +175,7 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
 
 fn energy_system(mut query: Query<&mut Energy>) {
     for mut energy in query.iter_mut() {
-        if energy.value > 0.0 {
-            energy.value -= 0.05;
-            // println!("Energy: {}", energy.value);
-        }
+        energy.remove_energy(0.05);
     }
 }
 
@@ -177,7 +204,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Given the space available, compute how many rows and columns of bricks we can fit
     let n_columns = (WORLD_SIZE * WORLD_SCALE / (CELL_SIZE.x + GAP_BETWEEN_CELLS)).floor() as usize;
     let n_rows = (WORLD_SIZE * WORLD_SCALE / (CELL_SIZE.y + GAP_BETWEEN_CELLS)).floor() as usize;
-    let n_vertical_gaps = n_columns - 1;
 
     // In Bevy, the `translation` of an entity describes the center point,
     // not its bottom-left corner
@@ -254,25 +280,27 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
 
 fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
     for (mut transform, velocity) in query.iter_mut() {
-        if transform.translation.x < -WORLD_SIZE * WORLD_SCALE  / 2.0 {
+        if transform.translation.x < -WORLD_SIZE * WORLD_SCALE / 2.0 {
             transform.translation.x += WORLD_SIZE * WORLD_SCALE;
         } else if transform.translation.x > WORLD_SIZE * WORLD_SCALE / 2.0 {
             transform.translation.x -= WORLD_SIZE * WORLD_SCALE;
         }
 
-        if transform.translation.y < -WORLD_SIZE * WORLD_SCALE  / 2.0 {
+        if transform.translation.y < -WORLD_SIZE * WORLD_SCALE / 2.0 {
             transform.translation.y += WORLD_SIZE * WORLD_SCALE;
         } else if transform.translation.y > WORLD_SIZE * WORLD_SCALE / 2.0 {
             transform.translation.y -= WORLD_SIZE * WORLD_SCALE;
         }
     }
-
 }
 
 fn check_for_collisions(
     mut commands: Commands,
     mut particle_query: Query<(Entity, &mut Velocity, &Transform, Option<&Food>), With<Particle>>,
-    mut collider_query: Query<(&Transform, Option<&mut Energy>), (With<Collider>, Without<Particle>,)>,
+    mut collider_query: Query<
+        (&Transform, Option<&mut Energy>),
+        (With<Collider>, Without<Particle>),
+    >,
     mut collision_events: EventWriter<CollisionEvent>,
 ) {
     if particle_query.iter().count() == 0 {
@@ -281,7 +309,9 @@ fn check_for_collisions(
     // let (mut ball_velocity, ball_transform) = particle_query.single_mut();
     // let ball_size = ball_transform.scale.truncate();
     let particle_size: Vec2 = const_vec2!([FOOD_SIZE, FOOD_SIZE]);
-    for (particle_entity, mut particle_velocity, particle_transform, maybe_food) in particle_query.iter_mut() {
+    for (particle_entity, mut particle_velocity, particle_transform, maybe_food) in
+        particle_query.iter_mut()
+    {
         // check collision with walls
         for (transform, mut maybe_energy) in collider_query.iter_mut() {
             let collision = collide(
@@ -295,17 +325,12 @@ fn check_for_collisions(
                 collision_events.send_default();
 
                 if maybe_food.is_some() {
-                    if maybe_energy.is_some(){
+                    if maybe_energy.is_some() {
                         let cell_energy = maybe_energy.as_mut().unwrap();
-                        if cell_energy.value < cell_energy.max_energy {
-                            cell_energy.value += FOOD_ENERGY;
-                            if cell_energy.value > cell_energy.max_energy {
-                                cell_energy.value = cell_energy.max_energy;
-                            }
+                        if cell_energy.add_energy(FOOD_ENERGY) {
+                            commands.entity(particle_entity).despawn();
+                            break;
                         }
-                        commands.entity(particle_entity).despawn();
-                        break;
-
                     }
                 }
 
