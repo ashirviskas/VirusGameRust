@@ -119,12 +119,53 @@ struct Wall;
 #[derive(Component)]
 struct Food;
 
-/// Which side of the arena is this wall located on?
-enum WallLocation {
-    Left,
-    Right,
-    Bottom,
-    Top,
+#[derive(Component)]
+struct CodonHealth {
+    value: f32,
+    max_value: f32,
+}
+
+enum CodonType {
+    // OG first part
+    None,
+    Digest,
+    Remove,
+    Repair,
+    MoveHand,
+    Read,
+    Write,
+    // OG second part
+    Food,
+    Waste,
+    Wall,
+    WeakLoc,
+    Inward,
+    Outward,
+    RGL,
+    // Additions
+    Energy,  // Can read energy levels
+    LogicIf, // Will execute next codons depending on the last read state (if read num > 0.5)
+}
+
+#[derive(Component)]
+struct Codon {
+    type_: CodonType,
+    health: CodonHealth,
+    value_a: f32,
+    value_b: f32,
+}
+
+#[derive(Component)]
+struct Genome {
+    codons: Vec<Codon>,
+}
+
+#[derive(Component)]
+struct GenomeExecutor {
+    genome: Genome,
+    current_codon: usize,
+    hand_speed: f32,
+    hand_position: usize,
 }
 
 #[derive(Component, PartialEq)]
@@ -173,9 +214,13 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
     return result;
 }
 
-fn energy_system(mut query: Query<&mut Energy>) {
-    for mut energy in query.iter_mut() {
+fn energy_system(mut commands: Commands, mut query: Query<(Entity, &mut Energy)>) {
+    for (entity, mut energy) in query.iter_mut() {
         energy.remove_energy(0.05);
+        if energy.value - ENERGY_RESOLUTION <= 0.0 {
+            // TODO: Handle despawning in the cell
+            commands.entity(entity).despawn();
+        }
     }
 }
 
@@ -264,8 +309,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         ..default()
                     })
                     .insert(Collider)
-                    .insert(Wall)
-                    .insert(cell_type);
+                    .insert(Wall);
             }
         }
     }
