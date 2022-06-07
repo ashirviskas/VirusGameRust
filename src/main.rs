@@ -5,9 +5,11 @@ use bevy::{
     math::{const_vec2, const_vec3},
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
+    tasks::AsyncComputeTaskPool,
 };
 use bevy_prototype_lyon::prelude::*;
 use rand::prelude::*;
+use std::ops::Deref;
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 60.0;
@@ -27,6 +29,7 @@ const GAP_BETWEEN_CELLS: f32 = 1.0;
 const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
 const FOOD_COLOR: Color = Color::rgb(0.9, 0.1, 0.2);
+const WASTE_COLOR: Color = Color::rgb(0.5, 0.5, 0.2);
 
 fn main() {
     App::new()
@@ -74,6 +77,9 @@ struct Wall;
 
 #[derive(Component)]
 struct Food;
+
+#[derive(Component)]
+struct Waste;
 
 // PartialEq and copy
 #[derive(PartialEq, Copy, Clone)]
@@ -257,11 +263,12 @@ impl Cell {
         }
     }
     // Removes a certain amount of waste.
-    fn remove_waste(&mut self, amount: f32) {
+    fn remove_waste(&mut self, amount: f32) -> bool {
         if self.waste >= amount {
             self.waste -= amount;
+            true
         } else {
-            self.waste = 0.0;
+            false
         }
     }
 }
@@ -578,8 +585,12 @@ fn food_dispenser(
     }
 }
 
-fn codon_executing(mut commands: Commands, mut cell_query: Query<&mut Cell>) {
-    for (mut cell) in cell_query.iter_mut() {
+fn codon_executing(
+    mut commands: Commands,
+    mut cell_query: Query<(&mut Cell, &Transform)>,
+    pool: Res<AsyncComputeTaskPool>,
+) {
+    for (mut cell, cell_pos) in cell_query.iter_mut() {
         // gets current codon from hand position
         let cur_codon = cell.get_current_codon();
         let prev_codon = cell.get_codon(cell.last_executed_codon);
@@ -629,8 +640,13 @@ fn codon_executing(mut commands: Commands, mut cell_query: Query<&mut Cell>) {
                 // println!("Waste");
                 match prev_codon.type_ {
                     CodonType::Remove => {
-                        cell.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
-                        println!("Removed waste");
+                        let removed_waste = cell.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
+                        if removed_waste {
+                            println!("Removed waste");
+                            spawn_waste(&mut commands, cell_pos);
+                        }
+                        // spawning waste particle
+                        // TODO: Create a task to spawn waste
                     }
                     _ => {
                         // cell.eat_waste();
@@ -673,4 +689,38 @@ fn codon_executing(mut commands: Commands, mut cell_query: Query<&mut Cell>) {
             cell.current_codon_reader = 0;
         }
     }
+}
+
+fn spawn_waste(commands: &mut Commands, cell_pos: &Transform) {
+    let center_vec = Vec2::new(0., 0.);
+
+    let mut random_waste_position = Vec2::new(
+        random::<f32>() * CELL_SIZE.x - CELL_SIZE.x / 2.0,
+        random::<f32>() * CELL_SIZE.y - CELL_SIZE.y / 2.0,
+    );
+    random_waste_position.x += cell_pos.translation.x;
+    random_waste_position.y += cell_pos.translation.y;
+    let shape = shapes::Circle {
+        radius: FOOD_SIZE / 2.0,
+        center: center_vec,
+    };
+    let random_direction = Vec2::new(random::<f32>() * 50.0 - 25.0, random::<f32>() * 50.0 - 25.0);
+
+    commands
+        .spawn_bundle(GeometryBuilder::build_as(
+            &shape,
+            DrawMode::Outlined {
+                fill_mode: FillMode::color(WASTE_COLOR),
+                outline_mode: StrokeMode::new(Color::BLACK, 0.),
+            },
+            Transform {
+                translation: random_waste_position.extend(0.0),
+                scale: Vec3::new(1.0, 1.0, 1.0),
+                ..default()
+            },
+        ))
+        .insert(Waste)
+        .insert(Collider)
+        .insert(Velocity(random_direction))
+        .insert(Particle);
 }
