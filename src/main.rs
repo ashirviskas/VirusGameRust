@@ -32,7 +32,7 @@ const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.3; // how much energy will be tak
 const CODON_EXECUTION_RATE: f32 = 0.1; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
-// These values are exact
+const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be taken out of the codon for executing
 const GAP_BETWEEN_CELLS: f32 = 1.0;
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
@@ -101,6 +101,7 @@ struct Waste;
 
 // PartialEq and copy
 #[derive(PartialEq, Copy, Clone)]
+#[repr(u8)]
 enum CodonType {
     // OG action codons
     None,
@@ -124,6 +125,12 @@ enum CodonType {
 }
 
 #[derive(PartialEq)]
+enum HandDirection {
+    Inward,
+    Outward,
+}
+
+#[derive(PartialEq, Clone)]
 struct Codon {
     type_: CodonType,
     health: f32,
@@ -183,6 +190,58 @@ impl Genome {
         }
         Genome { codons }
     }
+
+    fn get_weakest_loc(&self) -> usize {
+        let mut weakest_loc = 0;
+        let mut weakest_health = 1.0;
+        for (i, codon) in self.codons.iter().enumerate() {
+            if codon.type_ == CodonType::WeakLoc {
+                if codon.health < weakest_health {
+                    weakest_health = codon.health;
+                    weakest_loc = i;
+                }
+            }
+        }
+        weakest_loc
+    }
+    fn damage_codon(&mut self, loc: usize, damage: f32) {
+        self.codons[loc].health -= damage;
+        if self.codons[loc].health <= 0.0 {
+            // mutating codon
+            println!("Codon at {} has mutated because of low health", loc);
+            self.mutate_codon(loc, true);
+        }
+    }
+    fn mutate_codon(&mut self, loc: usize, total_mutation: bool) {
+        // TODO: Implement partial mutation (only some value or type)
+        let mut codon = self.codons[loc].clone();
+        let codon_type = rand::random::<u32>() % (CodonType::LogicIf as u32);
+        codon.type_ = match codon_type {
+            0 => CodonType::None,
+            1 => CodonType::Digest,
+            2 => CodonType::Remove,
+            3 => CodonType::Repair,
+            4 => CodonType::MoveHand,
+            5 => CodonType::Read,
+            6 => CodonType::Write,
+            7 => CodonType::Food,
+            8 => CodonType::Waste,
+            9 => CodonType::Wall,
+            10 => CodonType::WeakLoc,
+            11 => CodonType::Inward,
+            12 => CodonType::Outward,
+            13 => CodonType::RGL,
+            14 => CodonType::Energy,
+            15 => CodonType::LogicIf,
+            _ => CodonType::None,
+        };
+        codon.health = 1.0;
+        codon.f_value_a = rand::random::<f32>();
+        codon.f_value_b = rand::random::<f32>();
+        codon.i_value_a = rand::random::<i32>();
+        codon.i_value_b = rand::random::<i32>();
+        self.codons[loc] = codon;
+    }
 }
 
 #[derive(Component)]
@@ -218,8 +277,8 @@ struct Cell {
     cell_memory: CellMemory,
     current_codon_reader: usize,
     last_executed_codon: usize,
-    hand_speed: f32,
     hand_position: usize,
+    hand_direction: HandDirection,
     energy: f32,     // 0.0 - 100.0
     max_energy: f32, // maximum amount of energy
     waste: f32, // generated waste that needs to be cleared. If 0.0, then the cell can have max_energy, if > 0.0, then the cell can have max_energy - waste
@@ -234,8 +293,8 @@ impl Cell {
             genome: Genome::default(),
             cell_memory: CellMemory::new(),
             current_codon_reader: 0,
-            hand_speed: 0.0,
             hand_position: 0,
+            hand_direction: HandDirection::Inward,
             last_executed_codon: 0,
             energy: DEFAULT_CELL_ENERGY,
             max_energy: DEFAULT_CELL_ENERGY,
@@ -254,8 +313,8 @@ impl Cell {
             cell_memory: CellMemory::new(),
             current_codon_reader: 0,
             last_executed_codon: 0,
-            hand_speed: 0.0,
             hand_position: 0,
+            hand_direction: HandDirection::Inward,
             energy: DEFAULT_CELL_ENERGY,
             max_energy: DEFAULT_CELL_ENERGY,
             waste: 0.0,
@@ -632,6 +691,7 @@ fn codon_executing(
             continue; // If the timer hasn't ticked, skip this cell
         }
         // gets current codon from hand position
+        let current_codon_reader = cell.current_codon_reader;
         let cur_codon = cell.get_current_codon();
         let prev_codon = cell.get_codon(cell.last_executed_codon);
         // does action depending on current codon
@@ -682,15 +742,12 @@ fn codon_executing(
                     CodonType::Remove => {
                         let removed_waste = cell.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
                         if removed_waste {
-                            println!("Removed waste");
+                            // println!("Removed waste");
                             spawn_waste(&mut commands, cell_pos);
                         }
-                        // spawning waste particle
-                        // TODO: Create a task to spawn waste
                     }
                     _ => {
-                        // cell.eat_waste();
-                        println!("Not removed waste??");
+                        // println!("Not removed waste??");
                     }
                 }
             }
@@ -701,14 +758,39 @@ fn codon_executing(
             CodonType::WeakLoc => {
                 // println!("Weak loc");
                 // cell.weak_loc();
+                match prev_codon.type_ {
+                    CodonType::MoveHand => {
+                        let weakest_loc = cell.genome.get_weakest_loc();
+                        cell.hand_position = weakest_loc;
+                    }
+                    _ => {
+                        // cell.repair();
+                    }
+                }
             }
             CodonType::Inward => {
                 // println!("Inward");
                 // cell.inward();
+                match prev_codon.type_ {
+                    CodonType::MoveHand => {
+                        cell.hand_direction = HandDirection::Inward;
+                    }
+                    _ => {
+                        // cell.repair();
+                    }
+                }
             }
             CodonType::Outward => {
                 // println!("Outward");
                 // cell.outward();
+                match prev_codon.type_ {
+                    CodonType::MoveHand => {
+                        cell.hand_direction = HandDirection::Outward;
+                    }
+                    _ => {
+                        // cell.repair();
+                    }
+                }
             }
             CodonType::RGL => {
                 // println!("RGL");
@@ -723,6 +805,11 @@ fn codon_executing(
                 // cell.logicif();
             }
         }
+        // remove health for codon
+        // cur_codon.health -= CODON_HEALTH_COST_PER_EXECUTION;
+        cell.genome
+            .damage_codon(current_codon_reader, CODON_HEALTH_COST_PER_EXECUTION);
+
         cell.last_executed_codon = cell.current_codon_reader;
         cell.current_codon_reader += 1;
         if cell.current_codon_reader >= cell.genome.codons.len() {
