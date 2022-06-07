@@ -18,11 +18,20 @@ const WORLD_SIZE: f32 = 800.0;
 const WORLD_SCALE: f32 = 1.0;
 const MAX_FOOD: usize = 1200;
 
+const WASTE_DISPAWN_TIMER: f32 = 0.2;
+const WASTE_DESPAWN_PER_TIMER: usize = 5;
+
 const CELL_SIZE: Vec2 = const_vec2!([20., 20.]);
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
 const ENERGY_RESOLUTION: f32 = 0.1;
+const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
+
+const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.3; // how much energy will be taken out of the cell for executing a codon
+const CODON_EXECUTION_RATE: f32 = 0.1; // Seconds between each codon execution for cell
+const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
+
 // These values are exact
 const GAP_BETWEEN_CELLS: f32 = 1.0;
 
@@ -50,12 +59,21 @@ fn main() {
         .add_system(bevy::input::system::exit_on_esc_system)
         .add_system(energy_color_system)
         .add_system(food_dispenser)
+        .insert_resource(WasteDespawnTimer(Timer::from_seconds(
+            WASTE_DISPAWN_TIMER,
+            true,
+        )))
+        .add_system(waste_despawner)
         .add_system(codon_executing)
         .run();
 }
 
 #[derive(Component)]
 struct Particle;
+
+struct WasteDespawnTimer(Timer);
+
+struct CodonExecutionTimer(Timer);
 
 #[derive(Component, Deref, DerefMut)]
 struct Velocity(Vec2);
@@ -205,10 +223,13 @@ struct Cell {
     energy: f32,     // 0.0 - 100.0
     max_energy: f32, // maximum amount of energy
     waste: f32, // generated waste that needs to be cleared. If 0.0, then the cell can have max_energy, if > 0.0, then the cell can have max_energy - waste
+    codon_execution_timer: CodonExecutionTimer,
 }
 
 impl Cell {
     fn new() -> Cell {
+        let codon_execution_rate = CODON_EXECUTION_RATE
+            + CODON_EXECUTION_RATE * CODON_EXECUTION_RATE_VARIATION * (rand::random::<f32>() - 0.5);
         Cell {
             genome: Genome::default(),
             cell_memory: CellMemory::new(),
@@ -219,9 +240,15 @@ impl Cell {
             energy: DEFAULT_CELL_ENERGY,
             max_energy: DEFAULT_CELL_ENERGY,
             waste: 0.0,
+            codon_execution_timer: CodonExecutionTimer(Timer::from_seconds(
+                codon_execution_rate,
+                true,
+            )),
         }
     }
     fn new_from_genome(genome: Genome) -> Cell {
+        let codon_execution_rate = CODON_EXECUTION_RATE
+            + CODON_EXECUTION_RATE * CODON_EXECUTION_RATE_VARIATION * (rand::random::<f32>() - 0.5);
         Cell {
             genome,
             cell_memory: CellMemory::new(),
@@ -232,6 +259,10 @@ impl Cell {
             energy: DEFAULT_CELL_ENERGY,
             max_energy: DEFAULT_CELL_ENERGY,
             waste: 0.0,
+            codon_execution_timer: CodonExecutionTimer(Timer::from_seconds(
+                codon_execution_rate,
+                true,
+            )),
         }
     }
     fn get_codon(&self, codon_idx: usize) -> &Codon {
@@ -339,7 +370,7 @@ fn should_spawn_type(x: usize, y: usize, world_size: usize) -> usize {
 
 fn energy_system(mut commands: Commands, mut query: Query<(Entity, &mut Cell)>) {
     for (entity, mut cell) in query.iter_mut() {
-        cell.remove_energy(0.05);
+        cell.remove_energy(CELL_ENERGY_LOSS_RATE);
         if cell.energy - ENERGY_RESOLUTION <= 0.0 {
             // TODO: Handle despawning in the cell
             commands.entity(entity).despawn();
@@ -587,10 +618,19 @@ fn food_dispenser(
 
 fn codon_executing(
     mut commands: Commands,
+    time: Res<Time>,
     mut cell_query: Query<(&mut Cell, &Transform)>,
     pool: Res<AsyncComputeTaskPool>,
 ) {
     for (mut cell, cell_pos) in cell_query.iter_mut() {
+        if !cell
+            .codon_execution_timer
+            .0
+            .tick(time.delta())
+            .just_finished()
+        {
+            continue; // If the timer hasn't ticked, skip this cell
+        }
         // gets current codon from hand position
         let cur_codon = cell.get_current_codon();
         let prev_codon = cell.get_codon(cell.last_executed_codon);
@@ -688,6 +728,7 @@ fn codon_executing(
         if cell.current_codon_reader >= cell.genome.codons.len() {
             cell.current_codon_reader = 0;
         }
+        cell.remove_energy(CODON_ENERGY_COST_PER_EXECUTION);
     }
 }
 
@@ -723,4 +764,24 @@ fn spawn_waste(commands: &mut Commands, cell_pos: &Transform) {
         .insert(Collider)
         .insert(Velocity(random_direction))
         .insert(Particle);
+}
+
+fn waste_despawner(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut timer: ResMut<WasteDespawnTimer>,
+    mut query: Query<Entity, With<Waste>>,
+) {
+    let mut despawned = 0;
+    if !timer.0.tick(time.delta()).just_finished() {
+        // If timer did not finish, do nothing
+        return;
+    }
+    for entity in query.iter() {
+        commands.entity(entity).despawn();
+        despawned += 1;
+        if despawned > WASTE_DESPAWN_PER_TIMER {
+            break;
+        }
+    }
 }
