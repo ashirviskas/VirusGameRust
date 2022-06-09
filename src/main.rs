@@ -21,7 +21,7 @@ const MAX_FOOD: usize = 1200;
 const WASTE_DISPAWN_TIMER: f32 = 0.2;
 const WASTE_DESPAWN_PER_TIMER: usize = 5;
 
-const CELL_SIZE: Vec2 = const_vec2!([20., 20.]);
+const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
@@ -31,6 +31,9 @@ const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
 const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.3; // how much energy will be taken out of the cell for executing a codon
 const CODON_EXECUTION_RATE: f32 = 0.1; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
+
+const MAX_CODON_IDX: i32 = 60;
+const MIN_CODON_IDX: i32 = -60;
 
 const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be taken out of the codon for executing
 const GAP_BETWEEN_CELLS: f32 = 1.0;
@@ -195,11 +198,9 @@ impl Genome {
         let mut weakest_loc = 0;
         let mut weakest_health = 1.0;
         for (i, codon) in self.codons.iter().enumerate() {
-            if codon.type_ == CodonType::WeakLoc {
-                if codon.health < weakest_health {
-                    weakest_health = codon.health;
-                    weakest_loc = i;
-                }
+            if codon.health < weakest_health {
+                weakest_health = codon.health;
+                weakest_loc = i;
             }
         }
         weakest_loc
@@ -238,10 +239,53 @@ impl Genome {
         codon.health = 1.0;
         codon.f_value_a = rand::random::<f32>();
         codon.f_value_b = rand::random::<f32>();
-        codon.i_value_a = rand::random::<i32>();
-        codon.i_value_b = rand::random::<i32>();
+        codon.i_value_a = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
+        codon.i_value_b = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
+        if codon.i_value_a > codon.i_value_b {
+            let temp = codon.i_value_a;
+            codon.i_value_a = codon.i_value_b;
+            codon.i_value_b = temp;
+        }
+        println!(
+            "Codon at {} has mutated values to {:?}, {:?}, {:?}, {:?}",
+            loc,
+            codon.f_value_a,
+            codon.f_value_b,
+            codon.i_value_a,
+            codon.i_value_b
+        );
         self.codons[loc] = codon;
     }
+
+    fn read_genome(&self, start: i32, end: i32) -> Vec<Codon> {
+        let mut codons = Vec::new();
+        for i in start..end + 1 {
+            let mut pos_i = i % (self.codons.len() as i32);
+            if pos_i < 0 {
+                pos_i = pos_i + (self.codons.len() as i32);
+            }
+            let pos_u: usize = pos_i as usize;
+            codons.push(self.codons[pos_u].clone());
+        }
+        codons
+    }
+    fn write_genome(&mut self, start: i32, end: i32, codons: Vec<Codon>) {
+        // TODO: Fix when start and end are > than the genome length
+        let mut reading_hand_pos = 0;
+        for i in start..end + 1 {
+            // println!("Writing genome at {}", i);
+            let mut pos_i = i % (self.codons.len() as i32);
+            if pos_i < 0 {
+                pos_i = pos_i + (self.codons.len() as i32);
+            }
+            let pos_u: usize = pos_i as usize;
+            let mut new_codon = codons[reading_hand_pos].clone();
+            new_codon.health = 1.0; // setting health to 1.0 when writing
+            self.codons[pos_u] = new_codon;
+            reading_hand_pos += 1;
+        }
+    }
+
 }
 
 #[derive(Component)]
@@ -249,7 +293,7 @@ struct CellMemory {
     float_level: f32,
     discrete_number_a: usize, // i.e. starting hand position
     disctete_number_b: usize, // i.e. end hand position
-    genome: Genome,
+    codons: Vec<Codon>,
 }
 
 impl CellMemory {
@@ -258,7 +302,7 @@ impl CellMemory {
             float_level: 0.0,
             discrete_number_a: 0,
             disctete_number_b: 0,
-            genome: Genome::new(Vec::new()),
+            codons: Vec::new(),
         }
     }
 
@@ -266,8 +310,8 @@ impl CellMemory {
         self.float_level
     }
 
-    fn genome_to_memory(&mut self, genome: Genome) {
-        self.genome = genome;
+    fn codons_to_memory(&mut self, codons: Vec<Codon>) {
+        self.codons = codons;
     }
 }
 
@@ -623,7 +667,7 @@ fn food_dispenser(
     let food_size_vec = Vec2::new(FOOD_SIZE, FOOD_SIZE);
     if food_query.iter().count() < MAX_FOOD {
         let mut random_food_position: Vec2 = Vec2::new(0., 0.);
-        while true {
+        loop {
             let mut found_empty_spot = true;
             random_food_position = Vec2::new(
                 random::<f32>() * WORLD_SIZE * WORLD_SCALE - WORLD_SIZE * WORLD_SCALE / 2.0,
@@ -652,9 +696,13 @@ fn food_dispenser(
             radius: FOOD_SIZE / 2.0,
             center: center_vec,
         };
-        let random_direction =
-            Vec2::new(random::<f32>() * 50.0 - 25.0, random::<f32>() * 50.0 - 25.0);
-
+        let random_speed =
+            Vec2::new(random::<f32>() * 25.0 + 25.0, random::<f32>() * 25.0 + 25.0);
+        let random_direction_degrees = random::<f32>() * 360.0;
+        let random_direction = Vec2::new(
+            random_speed.x * random_direction_degrees.cos(),
+            random_speed.y * random_direction_degrees.sin(),
+        );
         commands
             .spawn_bundle(GeometryBuilder::build_as(
                 &shape,
@@ -696,114 +744,148 @@ fn codon_executing(
         let prev_codon = cell.get_codon(cell.last_executed_codon);
         // does action depending on current codon
         // println!("Codon executing");
-        match cur_codon.type_ {
-            CodonType::None => {
-                // println!("Doing nothing");
-                // do nothing
-            }
-            CodonType::Digest => {
-                // println!("Digesting");
-                // cell.digest();
-            }
-            CodonType::Remove => {
-                // println!("Removing");
-                // cell.remove();
-            }
-            CodonType::Repair => {
-                // println!("Repairing");
-                // cell.repair();
-            }
-            CodonType::MoveHand => {
-                // println!("Moving hand");
-                // cell.move_hand();
-            }
-            CodonType::Read => {
-                // println!("Reading");
-                // cell.read();
-            }
-            CodonType::Write => {
-                // println!("Writing");
-                // cell.write();
-            }
-            CodonType::Food => {
-                // println!("Food");
-                match prev_codon.type_ {
-                    CodonType::Digest => {
-                        // cell.eat_food();
-                    }
-                    _ => {
-                        // cell.eat_food();
-                    }
+        loop { // Looping so we can break if we don't want to nest ifs too deep.
+            match cur_codon.type_ {
+                CodonType::None => {
+                    // println!("Doing nothing");
+                    // do nothing
                 }
-            }
-            CodonType::Waste => {
-                // println!("Waste");
-                match prev_codon.type_ {
-                    CodonType::Remove => {
-                        let removed_waste = cell.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
-                        if removed_waste {
-                            // println!("Removed waste");
-                            spawn_waste(&mut commands, cell_pos);
+                CodonType::Digest => {
+                    // println!("Digesting");
+                    // cell.digest();
+                }
+                CodonType::Remove => {
+                    // println!("Removing");
+                    // cell.remove();
+                }
+                CodonType::Repair => {
+                    // println!("Repairing");
+                    // cell.repair();
+                }
+                CodonType::MoveHand => {
+                    // println!("Moving hand");
+                    // cell.move_hand();
+                }
+                CodonType::Read => {
+                    // println!("Reading");
+                    // cell.read();
+                }
+                CodonType::Write => {
+                    // println!("Writing");
+                    // cell.write();
+                }
+                CodonType::Food => {
+                    // println!("Food");
+                    match prev_codon.type_ {
+                        CodonType::Digest => {
+                            // cell.eat_food();
+                        }
+                        _ => {
+                            // cell.eat_food();
                         }
                     }
-                    _ => {
-                        // println!("Not removed waste??");
+                }
+                CodonType::Waste => {
+                    // println!("Waste");
+                    if cell.hand_direction == HandDirection::Inward {
+                        // cannot remove waste if hand is in inward direction
+                        println!("Cannot remove waste if hand is in inward direction");
+                        break;
+                    }
+                    match prev_codon.type_ {
+                        CodonType::Remove => {
+                            let removed_waste = cell.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
+                            if removed_waste {
+                                // println!("Removed waste");
+                                spawn_waste(&mut commands, cell_pos);
+                            }
+                        }
+                        _ => {
+                            // println!("Not removed waste??");
+                        }
                     }
                 }
-            }
-            CodonType::Wall => {
-                // println!("Wall");
-                // cell.wall();
-            }
-            CodonType::WeakLoc => {
-                // println!("Weak loc");
-                // cell.weak_loc();
-                match prev_codon.type_ {
-                    CodonType::MoveHand => {
-                        let weakest_loc = cell.genome.get_weakest_loc();
-                        cell.hand_position = weakest_loc;
+                CodonType::Wall => {
+                    // println!("Wall");
+                    // cell.wall();
+                }
+                CodonType::WeakLoc => {
+                    // println!("Weak loc");
+                    // cell.weak_loc();
+                    if cell.hand_direction == HandDirection::Outward {
+                        // cannot weak loc if hand is in Outward direction
+                        // println!("Cannot weak loc if hand is in Outward direction");
+                        break;
                     }
-                    _ => {
-                        // cell.repair();
+                    match prev_codon.type_ {
+                        CodonType::MoveHand => {
+                            let weakest_loc = cell.genome.get_weakest_loc();
+                            cell.hand_position = weakest_loc;
+                        }
+                        _ => {
+                            // cell.repair();
+                        }
                     }
                 }
-            }
-            CodonType::Inward => {
-                // println!("Inward");
-                // cell.inward();
-                match prev_codon.type_ {
-                    CodonType::MoveHand => {
-                        cell.hand_direction = HandDirection::Inward;
-                    }
-                    _ => {
-                        // cell.repair();
-                    }
-                }
-            }
-            CodonType::Outward => {
-                // println!("Outward");
-                // cell.outward();
-                match prev_codon.type_ {
-                    CodonType::MoveHand => {
-                        cell.hand_direction = HandDirection::Outward;
-                    }
-                    _ => {
-                        // cell.repair();
+                CodonType::Inward => {
+                    // println!("Inward");
+                    // cell.inward();
+                    match prev_codon.type_ {
+                        CodonType::MoveHand => {
+                            cell.hand_direction = HandDirection::Inward;
+                        }
+                        _ => {
+                            // cell.repair();
+                        }
                     }
                 }
+                CodonType::Outward => {
+                    // println!("Outward");
+                    // cell.outward();
+                    match prev_codon.type_ {
+                        CodonType::MoveHand => {
+                            cell.hand_direction = HandDirection::Outward;
+                        }
+                        _ => {
+                            // cell.repair();
+                        }
+                    }
+                }
+                CodonType::RGL => {
+                    if cell.hand_direction == HandDirection::Outward {
+                        break;
+                    }
+                    match prev_codon.type_ {
+                        CodonType::Read => {
+                            let read_start = cur_codon.i_value_a + cell.hand_position as i32;
+                            let read_end = cur_codon.i_value_b + cell.hand_position as i32;
+                            let read_codons = cell.genome.read_genome(read_start, read_end);
+                            cell.cell_memory.codons = read_codons;
+                        }
+                        CodonType::Write => {
+                            // println!("Writing genome!");
+                            let write_start = cur_codon.i_value_a + cell.hand_position as i32;
+                            let write_end = cur_codon.i_value_b + cell.hand_position as i32;
+                            let write_codons = cell.cell_memory.codons.clone();
+                            cell.genome.write_genome(write_start, write_end, write_codons);
+                        }
+                        _ => {
+                            // cell.repair();
+                        }
+                    }
+                    // println!("RGL");
+                    // cell.rgl();
+                }
+                CodonType::Energy => {
+                    // println!("Energy");
+                    // cell.energy();
+                }
+                CodonType::LogicIf => {
+                    // println!("Logic if");
+                    // cell.logicif();
+                }
             }
-            CodonType::RGL => {
-                // println!("RGL");
-                // cell.rgl();
-            }
-            CodonType::Energy => {
-                // println!("Energy");
-                // cell.energy();
-            }
-            CodonType::LogicIf => {
-                // println!("Logic if");
-                // cell.logicif();
-            }
+            break;
         }
         // remove health for codon
         // cur_codon.health -= CODON_HEALTH_COST_PER_EXECUTION;
