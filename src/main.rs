@@ -19,10 +19,12 @@ const WORLD_SCALE: f32 = 1.0;
 const MAX_FOOD: usize = 1200;
 
 const WASTE_DISPAWN_TIMER: f32 = 0.5;
-const WASTE_DESPAWN_PER_TIMER: usize = 3;
+const WASTE_DESPAWN_PER_TIMER: usize = 4;
 
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 40. / 8.0;
+const GAP_BETWEEN_CELLS: f32 = 40. / 8.;
+const GRID_SIZE: f32 = 50.;
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
@@ -37,7 +39,6 @@ const MAX_CODON_IDX: i32 = 60;
 const MIN_CODON_IDX: i32 = -60;
 
 const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be taken out of the codon for executing
-const GAP_BETWEEN_CELLS: f32 = 1.0;
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
@@ -94,6 +95,10 @@ struct Looptarounder;
 #[derive(Default)]
 struct LooptaroundEvent;
 
+struct PhysicsGrid {
+
+}
+
 #[derive(PartialEq, Copy, Clone)]
 enum CellWallPosition {
     Left,
@@ -118,7 +123,7 @@ impl CellWall {
         match cell_wall_position {
             CellWallPosition::Left => {
                 Vec2::new(
-                    cell_position.x - CELL_SIZE.x / 2.0 + self.get_wall_thickness() / 2.0,
+                    cell_position.x - CELL_SIZE.x / 2.0,
                     cell_position.y
                 )
             },
@@ -667,6 +672,8 @@ fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
         }
     }
 }
+
+
 
 fn check_for_collisions(
     mut commands: Commands,
