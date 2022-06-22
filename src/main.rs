@@ -21,10 +21,12 @@ const MAX_FOOD: usize = 1200;
 const WASTE_DISPAWN_TIMER: f32 = 0.5;
 const WASTE_DESPAWN_PER_TIMER: usize = 4;
 
+const CELL_Z_LAYER: f32 = 0.0;
+const CELL_WALL_Z_LAYER: f32 = 0.1;
+
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 40. / 8.0;
 const GAP_BETWEEN_CELLS: f32 = 40. / 8.;
-const GRID_SIZE: f32 = 50.;
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
@@ -107,7 +109,6 @@ enum CellWallPosition {
     Bottom,
 }
 
-#[derive(PartialEq, Clone)]
 struct CellWall {
     wall_health: f32,
 }
@@ -119,11 +120,11 @@ impl CellWall {
     fn get_wall_thickness(&self) -> f32 {
         DEFAULT_CELL_WALL_THICKNESS * self.wall_health
     }
-    fn get_wall_position(&self, cell_position: Vec2, cell_wall_position: CellWallPosition) -> Vec2 {
+    fn get_wall_position_part(&self, cell_position: Vec2, cell_wall_position: CellWallPosition) -> Vec2 {
         match cell_wall_position {
             CellWallPosition::Left => {
                 Vec2::new(
-                    cell_position.x - CELL_SIZE.x / 2.0,
+                    cell_position.x - CELL_SIZE.x / 2.0 + self.get_wall_thickness() / 2.0,
                     cell_position.y
                 )
             },
@@ -136,13 +137,13 @@ impl CellWall {
             CellWallPosition::Top => {
                 Vec2::new(
                     cell_position.x,
-                    cell_position.y + CELL_SIZE.y / 2.0 + self.get_wall_thickness() / 2.0
+                    cell_position.y + CELL_SIZE.y / 2.0 - self.get_wall_thickness() / 2.0
                 )
             } 
             CellWallPosition::Bottom => {
                 Vec2::new(
                     cell_position.x,
-                    cell_position.y - CELL_SIZE.y / 2.0 - self.get_wall_thickness() / 2.0
+                    cell_position.y - CELL_SIZE.y / 2.0 + self.get_wall_thickness() / 2.0
                 )
             }
         }
@@ -585,9 +586,16 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             );
 
             // cell
-            let cell_wall = CellWall::new();
+
+
+
             if cell_type == CellType::Cell {
-                commands
+                let cell_wall = CellWall::new();
+                let cell_wall_entity_left = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Left);
+                let cell_wall_entity_right = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Right);
+                let cell_wall_entity_top = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Top);
+                let cell_wall_entity_bottom = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Bottom);
+                let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
                             sprite: Sprite {
@@ -595,7 +603,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 ..default()
                             },
                             transform: Transform {
-                                translation: cell_position.extend(0.0),
+                                translation: cell_position.extend(CELL_Z_LAYER),
                                 scale: Vec3::new(CELL_SIZE.x, CELL_SIZE.y, 1.0),
                                 ..default()
                             },
@@ -604,8 +612,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         Cell::new(),
                         Collider,
                     ))
-                    .insert(CellType::Cell);
-                spawn_cell_walls(&mut commands, cell_position, cell_wall)
+                    .insert(CellType::Cell).push_children(&[cell_wall_entity_left]);
+                    // .add_child(cell_wall_entity_left)
+                    // .add_child(cell_wall_entity_right)
+                    // .add_child(cell_wall_entity_top)
+                    // .add_child(cell_wall_entity_bottom);
+
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -615,7 +627,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                             ..default()
                         },
                         transform: Transform {
-                            translation: cell_position.extend(0.0),
+                            translation: cell_position.extend(CELL_Z_LAYER),
                             scale: Vec3::new(CELL_SIZE.x, CELL_SIZE.y, 1.0),
                             ..default()
                         },
@@ -628,9 +640,24 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 }
 
-fn spawn_cell_walls(commands: &mut Commands, cell_position: Vec2, cell_wall: CellWall) {
+fn spawn_cell_wall(commands: &mut Commands, cell_position: Vec2, cell_wall: &CellWall, cell_wall_position: CellWallPosition) -> Entity {
     // left wall
-    let left_wall_position = cell_wall.get_wall_position(cell_position, CellWallPosition::Left);
+    let wall_position = cell_wall.get_wall_position_part(cell_position, cell_wall_position);
+    let wall_thickness = cell_wall.get_wall_thickness();
+    let scale = match cell_wall_position {
+        CellWallPosition::Left => {
+            Vec3::new(wall_thickness, CELL_SIZE.y, 1.0)
+        }
+        CellWallPosition::Right => {
+            Vec3::new(wall_thickness, CELL_SIZE.y, 1.0)
+        }
+        CellWallPosition::Top => {
+            Vec3::new(CELL_SIZE.x, wall_thickness , 1.0)
+        }
+        CellWallPosition::Bottom => {
+            Vec3::new(CELL_SIZE.x, wall_thickness, 1.0)
+        }
+    };
     commands
     .spawn()
     .insert_bundle(
@@ -640,14 +667,15 @@ fn spawn_cell_walls(commands: &mut Commands, cell_position: Vec2, cell_wall: Cel
                 ..default()
             },
             transform: Transform {
-                translation: left_wall_position.extend(0.0),
-                scale: Vec3::new(cell_wall.get_wall_thickness(), CELL_SIZE.y, 1.0),
+                translation: wall_position.extend(CELL_WALL_Z_LAYER),
+                scale: scale,
                 ..default()
             },
             ..default()
         },
     )
-    .insert(Collider);
+    .insert(Collider)
+    .id()
 }
 
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
