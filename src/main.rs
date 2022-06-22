@@ -18,10 +18,11 @@ const WORLD_SIZE: f32 = 800.0;
 const WORLD_SCALE: f32 = 1.0;
 const MAX_FOOD: usize = 1200;
 
-const WASTE_DISPAWN_TIMER: f32 = 0.2;
-const WASTE_DESPAWN_PER_TIMER: usize = 5;
+const WASTE_DISPAWN_TIMER: f32 = 0.5;
+const WASTE_DESPAWN_PER_TIMER: usize = 3;
 
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
+const DEFAULT_CELL_WALL_THICKNESS: f32 = 40. / 8.0;
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
@@ -92,6 +93,56 @@ struct Looptarounder;
 
 #[derive(Default)]
 struct LooptaroundEvent;
+
+#[derive(PartialEq, Copy, Clone)]
+enum CellWallPosition {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+#[derive(PartialEq, Clone)]
+struct CellWall {
+    wall_health: f32,
+}
+
+impl CellWall {
+    fn new () -> CellWall {
+        CellWall { wall_health: 1.0 }
+    }
+    fn get_wall_thickness(&self) -> f32 {
+        DEFAULT_CELL_WALL_THICKNESS * self.wall_health
+    }
+    fn get_wall_position(&self, cell_position: Vec2, cell_wall_position: CellWallPosition) -> Vec2 {
+        match cell_wall_position {
+            CellWallPosition::Left => {
+                Vec2::new(
+                    cell_position.x - CELL_SIZE.x / 2.0 + self.get_wall_thickness() / 2.0,
+                    cell_position.y
+                )
+            },
+            CellWallPosition::Right => {
+                Vec2::new(
+                    cell_position.x + CELL_SIZE.x / 2.0 - self.get_wall_thickness() / 2.0,
+                    cell_position.y
+                )
+            }
+            CellWallPosition::Top => {
+                Vec2::new(
+                    cell_position.x,
+                    cell_position.y + CELL_SIZE.y / 2.0 + self.get_wall_thickness() / 2.0
+                )
+            } 
+            CellWallPosition::Bottom => {
+                Vec2::new(
+                    cell_position.x,
+                    cell_position.y - CELL_SIZE.y / 2.0 - self.get_wall_thickness() / 2.0
+                )
+            }
+        }
+    }
+}
 
 #[derive(Component)]
 struct Wall;
@@ -327,6 +378,7 @@ struct Cell {
     max_energy: f32, // maximum amount of energy
     waste: f32, // generated waste that needs to be cleared. If 0.0, then the cell can have max_energy, if > 0.0, then the cell can have max_energy - waste
     codon_execution_timer: CodonExecutionTimer,
+    wall: CellWall
 }
 
 impl Cell {
@@ -347,6 +399,7 @@ impl Cell {
                 codon_execution_rate,
                 true,
             )),
+            wall: CellWall { wall_health: 1.0 }
         }
     }
     fn new_from_genome(genome: Genome) -> Cell {
@@ -366,6 +419,7 @@ impl Cell {
                 codon_execution_rate,
                 true,
             )),
+            wall: CellWall { wall_health: 1.0 }
         }
     }
     fn get_codon(&self, codon_idx: usize) -> &Codon {
@@ -526,6 +580,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             );
 
             // cell
+            let cell_wall = CellWall::new();
             if cell_type == CellType::Cell {
                 commands
                     .spawn_bundle(CellBundle::new(
@@ -545,6 +600,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         Collider,
                     ))
                     .insert(CellType::Cell);
+                spawn_cell_walls(&mut commands, cell_position, cell_wall)
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -565,6 +621,28 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             }
         }
     }
+}
+
+fn spawn_cell_walls(commands: &mut Commands, cell_position: Vec2, cell_wall: CellWall) {
+    // left wall
+    let left_wall_position = cell_wall.get_wall_position(cell_position, CellWallPosition::Left);
+    commands
+    .spawn()
+    .insert_bundle(
+        SpriteBundle {
+            sprite: Sprite {
+                color: Color::rgb(0.5, 0.5, 0.3),
+                ..default()
+            },
+            transform: Transform {
+                translation: left_wall_position.extend(0.0),
+                scale: Vec3::new(cell_wall.get_wall_thickness(), CELL_SIZE.y, 1.0),
+                ..default()
+            },
+            ..default()
+        },
+    )
+    .insert(Collider);
 }
 
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
