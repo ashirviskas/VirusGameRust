@@ -121,7 +121,7 @@ impl CellWall {
     fn get_wall_position_part(
         &self,
         cell_position: Vec2,
-        cell_wall_position: CellWallPosition,
+        cell_wall_position: &CellWallPosition,
     ) -> Vec2 {
         match cell_wall_position {
             CellWallPosition::Left => Vec2::new(-0.5 + self.get_wall_thickness() / 2., 0.),
@@ -548,6 +548,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // not its bottom-left corner
     let offset_x = CELL_SIZE.x - (WORLD_SIZE * WORLD_SCALE / 2.);
     let offset_y = CELL_SIZE.y - WORLD_SIZE * WORLD_SCALE / 2.;
+    let wall_positions = [
+        CellWallPosition::Left,
+        CellWallPosition::Right,
+        CellWallPosition::Top,
+        CellWallPosition::Bottom,
+    ];
 
     for row in 0..n_rows {
         for column in 0..n_columns {
@@ -563,34 +569,15 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             );
 
             // cell
-
             if cell_type == CellType::Cell {
                 let cell_wall = CellWall::new();
-                let cell_wall_entity_left = spawn_cell_wall(
-                    &mut commands,
-                    cell_position,
-                    &cell_wall,
-                    CellWallPosition::Left,
-                );
-                let cell_wall_entity_right = spawn_cell_wall(
-                    &mut commands,
-                    cell_position,
-                    &cell_wall,
-                    CellWallPosition::Right,
-                );
-                let cell_wall_entity_top = spawn_cell_wall(
-                    &mut commands,
-                    cell_position,
-                    &cell_wall,
-                    CellWallPosition::Top,
-                );
-                let cell_wall_entity_bottom = spawn_cell_wall(
-                    &mut commands,
-                    cell_position,
-                    &cell_wall,
-                    CellWallPosition::Bottom,
-                );
-                let parent_cell = commands
+                let cell_wall_entities = wall_positions
+                    .iter()
+                    .map(|wall_position| {
+                        spawn_cell_wall(&mut commands, cell_position, &cell_wall, wall_position)
+                    })
+                    .collect::<Vec<Entity>>();
+                commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
                             sprite: Sprite {
@@ -608,11 +595,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         Collider,
                     ))
                     .insert(CellType::Cell)
-                    .push_children(&[cell_wall_entity_left, cell_wall_entity_right, cell_wall_entity_top, cell_wall_entity_bottom]);
-                // .add_child(cell_wall_entity_left)
-                // .add_child(cell_wall_entity_right)
-                // .add_child(cell_wall_entity_top)
-                // .add_child(cell_wall_entity_bottom);
+                    .push_children(&cell_wall_entities);
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -639,7 +622,7 @@ fn spawn_cell_wall(
     commands: &mut Commands,
     cell_position: Vec2,
     cell_wall: &CellWall,
-    cell_wall_position: CellWallPosition,
+    cell_wall_position: &CellWallPosition,
 ) -> Entity {
     // left wall
     let wall_position = cell_wall.get_wall_position_part(cell_position, cell_wall_position);
