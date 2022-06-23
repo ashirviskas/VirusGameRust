@@ -25,7 +25,7 @@ const CELL_Z_LAYER: f32 = 0.0;
 const CELL_WALL_Z_LAYER: f32 = 0.1;
 
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
-const DEFAULT_CELL_WALL_THICKNESS: f32 = 40. / 8.0;
+const DEFAULT_CELL_WALL_THICKNESS: f32 = 0.125;
 const GAP_BETWEEN_CELLS: f32 = 40. / 8.;
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
@@ -97,9 +97,7 @@ struct Looptarounder;
 #[derive(Default)]
 struct LooptaroundEvent;
 
-struct PhysicsGrid {
-
-}
+struct PhysicsGrid {}
 
 #[derive(PartialEq, Copy, Clone)]
 enum CellWallPosition {
@@ -114,38 +112,22 @@ struct CellWall {
 }
 
 impl CellWall {
-    fn new () -> CellWall {
+    fn new() -> CellWall {
         CellWall { wall_health: 1.0 }
     }
     fn get_wall_thickness(&self) -> f32 {
         DEFAULT_CELL_WALL_THICKNESS * self.wall_health
     }
-    fn get_wall_position_part(&self, cell_position: Vec2, cell_wall_position: CellWallPosition) -> Vec2 {
+    fn get_wall_position_part(
+        &self,
+        cell_position: Vec2,
+        cell_wall_position: CellWallPosition,
+    ) -> Vec2 {
         match cell_wall_position {
-            CellWallPosition::Left => {
-                Vec2::new(
-                    cell_position.x - CELL_SIZE.x / 2.0 + self.get_wall_thickness() / 2.0,
-                    cell_position.y
-                )
-            },
-            CellWallPosition::Right => {
-                Vec2::new(
-                    cell_position.x + CELL_SIZE.x / 2.0 - self.get_wall_thickness() / 2.0,
-                    cell_position.y
-                )
-            }
-            CellWallPosition::Top => {
-                Vec2::new(
-                    cell_position.x,
-                    cell_position.y + CELL_SIZE.y / 2.0 - self.get_wall_thickness() / 2.0
-                )
-            } 
-            CellWallPosition::Bottom => {
-                Vec2::new(
-                    cell_position.x,
-                    cell_position.y - CELL_SIZE.y / 2.0 + self.get_wall_thickness() / 2.0
-                )
-            }
+            CellWallPosition::Left => Vec2::new(-0.5 + self.get_wall_thickness() / 2., 0.),
+            CellWallPosition::Right => Vec2::new(0.5 - self.get_wall_thickness() / 2., 0.),
+            CellWallPosition::Top => Vec2::new(0., 0.5 - self.get_wall_thickness() / 2.),
+            CellWallPosition::Bottom => Vec2::new(0., -0.5 + self.get_wall_thickness() / 2.),
         }
     }
 }
@@ -305,11 +287,7 @@ impl Genome {
         }
         println!(
             "Codon at {} has mutated values to {:?}, {:?}, {:?}, {:?}",
-            loc,
-            codon.f_value_a,
-            codon.f_value_b,
-            codon.i_value_a,
-            codon.i_value_b
+            loc, codon.f_value_a, codon.f_value_b, codon.i_value_a, codon.i_value_b
         );
         self.codons[loc] = codon;
     }
@@ -342,7 +320,6 @@ impl Genome {
             reading_hand_pos += 1;
         }
     }
-
 }
 
 #[derive(Component)]
@@ -384,7 +361,7 @@ struct Cell {
     max_energy: f32, // maximum amount of energy
     waste: f32, // generated waste that needs to be cleared. If 0.0, then the cell can have max_energy, if > 0.0, then the cell can have max_energy - waste
     codon_execution_timer: CodonExecutionTimer,
-    wall: CellWall
+    wall: CellWall,
 }
 
 impl Cell {
@@ -405,7 +382,7 @@ impl Cell {
                 codon_execution_rate,
                 true,
             )),
-            wall: CellWall { wall_health: 1.0 }
+            wall: CellWall { wall_health: 1.0 },
         }
     }
     fn new_from_genome(genome: Genome) -> Cell {
@@ -425,7 +402,7 @@ impl Cell {
                 codon_execution_rate,
                 true,
             )),
-            wall: CellWall { wall_health: 1.0 }
+            wall: CellWall { wall_health: 1.0 },
         }
     }
     fn get_codon(&self, codon_idx: usize) -> &Codon {
@@ -587,14 +564,32 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
             // cell
 
-
-
             if cell_type == CellType::Cell {
                 let cell_wall = CellWall::new();
-                let cell_wall_entity_left = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Left);
-                let cell_wall_entity_right = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Right);
-                let cell_wall_entity_top = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Top);
-                let cell_wall_entity_bottom = spawn_cell_wall(&mut commands, cell_position, &cell_wall, CellWallPosition::Bottom);
+                let cell_wall_entity_left = spawn_cell_wall(
+                    &mut commands,
+                    cell_position,
+                    &cell_wall,
+                    CellWallPosition::Left,
+                );
+                let cell_wall_entity_right = spawn_cell_wall(
+                    &mut commands,
+                    cell_position,
+                    &cell_wall,
+                    CellWallPosition::Right,
+                );
+                let cell_wall_entity_top = spawn_cell_wall(
+                    &mut commands,
+                    cell_position,
+                    &cell_wall,
+                    CellWallPosition::Top,
+                );
+                let cell_wall_entity_bottom = spawn_cell_wall(
+                    &mut commands,
+                    cell_position,
+                    &cell_wall,
+                    CellWallPosition::Bottom,
+                );
                 let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
@@ -612,12 +607,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         Cell::new(),
                         Collider,
                     ))
-                    .insert(CellType::Cell).push_children(&[cell_wall_entity_left]);
-                    // .add_child(cell_wall_entity_left)
-                    // .add_child(cell_wall_entity_right)
-                    // .add_child(cell_wall_entity_top)
-                    // .add_child(cell_wall_entity_bottom);
-
+                    .insert(CellType::Cell)
+                    .push_children(&[cell_wall_entity_left, cell_wall_entity_right, cell_wall_entity_top, cell_wall_entity_bottom]);
+                // .add_child(cell_wall_entity_left)
+                // .add_child(cell_wall_entity_right)
+                // .add_child(cell_wall_entity_top)
+                // .add_child(cell_wall_entity_bottom);
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -640,28 +635,24 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 }
 
-fn spawn_cell_wall(commands: &mut Commands, cell_position: Vec2, cell_wall: &CellWall, cell_wall_position: CellWallPosition) -> Entity {
+fn spawn_cell_wall(
+    commands: &mut Commands,
+    cell_position: Vec2,
+    cell_wall: &CellWall,
+    cell_wall_position: CellWallPosition,
+) -> Entity {
     // left wall
     let wall_position = cell_wall.get_wall_position_part(cell_position, cell_wall_position);
     let wall_thickness = cell_wall.get_wall_thickness();
     let scale = match cell_wall_position {
-        CellWallPosition::Left => {
-            Vec3::new(wall_thickness, CELL_SIZE.y, 1.0)
-        }
-        CellWallPosition::Right => {
-            Vec3::new(wall_thickness, CELL_SIZE.y, 1.0)
-        }
-        CellWallPosition::Top => {
-            Vec3::new(CELL_SIZE.x, wall_thickness , 1.0)
-        }
-        CellWallPosition::Bottom => {
-            Vec3::new(CELL_SIZE.x, wall_thickness, 1.0)
-        }
+        CellWallPosition::Left => Vec3::new(wall_thickness, 1.0, 1.0),
+        CellWallPosition::Right => Vec3::new(wall_thickness, 1.0, 1.0),
+        CellWallPosition::Top => Vec3::new(1.0, wall_thickness, 1.0),
+        CellWallPosition::Bottom => Vec3::new(1.0, wall_thickness, 1.0),
     };
     commands
-    .spawn()
-    .insert_bundle(
-        SpriteBundle {
+        .spawn()
+        .insert_bundle(SpriteBundle {
             sprite: Sprite {
                 color: Color::rgb(0.5, 0.5, 0.3),
                 ..default()
@@ -672,10 +663,9 @@ fn spawn_cell_wall(commands: &mut Commands, cell_position: Vec2, cell_wall: &Cel
                 ..default()
             },
             ..default()
-        },
-    )
-    .insert(Collider)
-    .id()
+        })
+        .insert(Collider)
+        .id()
 }
 
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
@@ -700,8 +690,6 @@ fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
         }
     }
 }
-
-
 
 fn check_for_collisions(
     mut commands: Commands,
@@ -809,8 +797,7 @@ fn food_dispenser(
             radius: FOOD_SIZE / 2.0,
             center: center_vec,
         };
-        let random_speed =
-            Vec2::new(random::<f32>() * 25.0 + 25.0, random::<f32>() * 25.0 + 25.0);
+        let random_speed = Vec2::new(random::<f32>() * 25.0 + 25.0, random::<f32>() * 25.0 + 25.0);
         let random_direction_degrees = random::<f32>() * 360.0;
         let random_direction = Vec2::new(
             random_speed.x * random_direction_degrees.cos(),
@@ -857,7 +844,8 @@ fn codon_executing(
         let prev_codon = cell.get_codon(cell.last_executed_codon);
         // does action depending on current codon
         // println!("Codon executing");
-        loop { // Looping so we can break if we don't want to nest ifs too deep.
+        loop {
+            // Looping so we can break if we don't want to nest ifs too deep.
             match cur_codon.type_ {
                 CodonType::None => {
                     // println!("Doing nothing");
@@ -980,7 +968,8 @@ fn codon_executing(
                             let write_start = cur_codon.i_value_a + cell.hand_position as i32;
                             let write_end = cur_codon.i_value_b + cell.hand_position as i32;
                             let write_codons = cell.cell_memory.codons.clone();
-                            cell.genome.write_genome(write_start, write_end, write_codons);
+                            cell.genome
+                                .write_genome(write_start, write_end, write_codons);
                         }
                         _ => {
                             // cell.repair();
