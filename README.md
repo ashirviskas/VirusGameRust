@@ -7,7 +7,7 @@
 - [x] - Implement particle functionality
 - [x] - Implement food spawner
 - [x] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> free itself up from waste to get more energy)
-- [ ] - Implement simple genes (OG VirusGame basis) functionality
+- [x] - Implement simple genes (OG VirusGame basis) functionality
 - [ ] - Implement cell walls
 - [ ] - Mutations
 - [ ] - Implement codons visual representation

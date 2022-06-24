@@ -8,9 +8,12 @@ use bevy::{
     tasks::AsyncComputeTaskPool,
 };
 use bevy_prototype_lyon::prelude::*;
+use bevy_prototype_lyon::prelude::FillMode;
 use rand::prelude::*;
 use std::ops::Deref;
+use bevy_rapier2d::prelude::*;
 
+const PI: f32 = 3.141592653589793;
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 60.0;
 
@@ -23,6 +26,7 @@ const WASTE_DESPAWN_PER_TIMER: usize = 4;
 
 const CELL_Z_LAYER: f32 = 0.0;
 const CELL_WALL_Z_LAYER: f32 = 0.1;
+const CODON_Z_LAYER: f32 = 0.2;
 
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 0.125;
@@ -33,6 +37,8 @@ const DEFAULT_CELL_ENERGY: f32 = 100.0;
 const ENERGY_RESOLUTION: f32 = 0.1;
 const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
 
+const CODON_SIZE: f32 = 0.1;
+const CODON_RADIUS: f32 = 0.4;
 const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.3; // how much energy will be taken out of the cell for executing a codon
 const CODON_EXECUTION_RATE: f32 = 0.1; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
@@ -52,6 +58,8 @@ fn main() {
         .insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
         .add_plugin(ShapePlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+        .add_plugin(RapierDebugRenderPlugin::default())
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_event::<CollisionEvent>()
@@ -120,7 +128,6 @@ impl CellWall {
     }
     fn get_wall_position_part(
         &self,
-        cell_position: Vec2,
         cell_wall_position: &CellWallPosition,
     ) -> Vec2 {
         match cell_wall_position {
@@ -164,6 +171,29 @@ enum CodonType {
     // Additional descriptive codons
     Energy, // If combined with Read, will read Energy levels into cell memory as hp/max_hp ratio
     LogicIf, // If combined with Write, will execute next codons depending on the last read state (if read num > 0.5)
+}
+
+impl CodonType {
+    fn get_color(&self) -> Color {
+        match self {
+            CodonType::None => Color::rgb(0.0, 0.0, 0.0),
+            CodonType::Digest => Color::rgb(0.4, 0.0, 0.8),
+            CodonType::Remove => Color::rgb(0.7, 0.6, 0.04),
+            CodonType::Repair => Color::rgb(0.0, 0.6, 0.0),
+            CodonType::MoveHand => Color::rgb(0.8, 0.0, 0.4),
+            CodonType::Read => Color::rgb(0.3, 0.3, 1.0),
+            CodonType::Write => Color::rgb(0.0, 0.0, 0.85),
+            CodonType::Food => Color::rgb(1.0, 0.0, 0.3),
+            CodonType::Waste => Color::rgb(0.4, 0.25, 0.0),
+            CodonType::Wall => Color::rgb(0.7, 0.3, 0.7),
+            CodonType::WeakLoc => Color::rgb(0.3, 0.7, 0.3),
+            CodonType::Inward => Color::rgb(0.0, 0.4, 0.4),
+            CodonType::Outward => Color::rgb(0.0, 0.8, 0.8),
+            CodonType::RGL => Color::rgb(0.5, 0.5, 0.5),
+            CodonType::Energy => Color::rgb(0.8, 0.0, 0.1),
+            CodonType::LogicIf => Color::rgb(1.0, 0.8, 1.0),
+        }
+    }
 }
 
 #[derive(PartialEq)]
@@ -462,6 +492,24 @@ impl CellBundle {
     }
 }
 
+#[derive(Bundle)]
+struct CellWallBundle {
+    #[bundle]
+    cell_wall: SpriteBundle,
+    collider: Collider
+}
+
+impl CellWallBundle {
+    fn new(cell_wall:&CellWall, parent: &ChildBuilder, cell_wall_position: &CellWallPosition, collider:Collider) -> CellWallBundle {
+        let cell_walls = spawn_cell_wall(&parent, cell_wall, cell_wall_position);
+        CellWallBundle{
+            cell_wall:cell_walls,
+            collider,
+        }
+
+    }
+}
+
 #[derive(Component, PartialEq)]
 enum CellType {
     Empty,
@@ -548,12 +596,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // not its bottom-left corner
     let offset_x = CELL_SIZE.x - (WORLD_SIZE * WORLD_SCALE / 2.);
     let offset_y = CELL_SIZE.y - WORLD_SIZE * WORLD_SCALE / 2.;
-    let wall_positions = [
-        CellWallPosition::Left,
-        CellWallPosition::Right,
-        CellWallPosition::Top,
-        CellWallPosition::Bottom,
-    ];
+
 
     for row in 0..n_rows {
         for column in 0..n_columns {
@@ -571,13 +614,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             // cell
             if cell_type == CellType::Cell {
                 let cell_wall = CellWall::new();
-                let cell_wall_entities = wall_positions
-                    .iter()
-                    .map(|wall_position| {
-                        spawn_cell_wall(&mut commands, cell_position, &cell_wall, wall_position)
-                    })
-                    .collect::<Vec<Entity>>();
-                commands
+                let cell = Cell::new();
+                let cell_genome_entities = spawn_genome(&mut commands, &cell.genome);
+                let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
                             sprite: Sprite {
@@ -591,11 +630,17 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                             },
                             ..default()
                         },
-                        Cell::new(),
+                        cell,
                         Collider,
                     ))
                     .insert(CellType::Cell)
-                    .push_children(&cell_wall_entities);
+                    .insert(RigidBody::Fixed)
+                    .with_children(|parent| {
+                        parent.spawn_bundle(CellWallBundle::new(&cell_wall, &parent, &CellWallPosition::Left, Collider))
+                        .insert(RigidBody::Dynamic)
+                        ;
+                    }).id();
+                    commands.entity(parent_cell).push_children(&cell_genome_entities);
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -618,14 +663,80 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 }
 
+// fn spawn_cell_walls(
+//     parent: &ChildBuilder,
+//     cell_wall: &CellWall,
+// ) -> (SpriteBundle, SpriteBundle, SpriteBundle, SpriteBundle) {
+//     let left_cell_wall = spawn_cell_wall(parent, cell_wall, &CellWallPosition::Left);
+//     let right_cell_wall = spawn_cell_wall(parent, cell_wall, &CellWallPosition::Right);
+//     let top_cell_wall = spawn_cell_wall(parent, cell_wall, &CellWallPosition::Top);
+//     let bottom_cell_wall = spawn_cell_wall(parent, cell_wall, &CellWallPosition::Bottom);
+//     (left_cell_wall, right_cell_wall, top_cell_wall, bottom_cell_wall)
+// }
+
+fn spawn_genome(child_builder: &mut Commands, genome: &Genome) -> Vec<Entity> {
+    // Spawning each codon in circle inside the parent
+    let mut codon_angle:f32 = 0.0;
+    let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+    let mut codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
+    let entities = genome.codons.iter().map(|codon| {
+        let codon_position = Vec2::new(
+            CODON_RADIUS * codon_angle.cos(),
+            CODON_RADIUS * codon_angle.sin(),
+        );
+        let codon_position = codon_position.extend(CODON_Z_LAYER);
+        let codon_color = codon.type_.get_color();
+        let child_entity = child_builder.spawn()
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite {
+                    color: codon_color,
+                    ..default()
+                },
+                transform: Transform {
+                    translation: codon_position,
+                    scale: Vec3::new(CODON_SIZE, codon_width, 1.0),
+                    rotation: Quat::from_rotation_z(codon_angle),
+                    ..default()
+                },
+                ..default()
+            }).id();
+        codon_angle += codon_angle_step;
+        child_entity
+            // .insert(Collider)
+            // .insert(Codon)
+            // .insert(RigidBody::Dynamic)
+    }).collect::<Vec<Entity>>();
+    entities
+    // for codon in genome.codons.iter() {
+    //     let codon_position = Vec2::new(
+    //         codon_radius * codon_angle.cos(),
+    //         codon_radius * codon_angle.sin(),
+    //     );
+    //     let codon_transform = Transform {
+    //         translation: codon_position.extend(CODON_Z_LAYER),
+    //         ..default()
+    //     };
+    //     let codon_sprite = Sprite {
+    //         color: codon.type_.get_color(),
+    //         ..default()
+    //     };
+    //     child_builder
+    //         .spawn_bundle(SpriteBundle {
+    //             sprite: codon_sprite,
+    //             transform: codon_transform,
+    //             ..default()
+    //         });
+    //     codon_angle += codon_angle_step;
+    // };
+}
+
 fn spawn_cell_wall(
-    commands: &mut Commands,
-    cell_position: Vec2,
+    commands: &ChildBuilder,
     cell_wall: &CellWall,
     cell_wall_position: &CellWallPosition,
-) -> Entity {
+) -> SpriteBundle {
     // left wall
-    let wall_position = cell_wall.get_wall_position_part(cell_position, cell_wall_position);
+    let wall_position = cell_wall.get_wall_position_part(cell_wall_position);
     let wall_thickness = cell_wall.get_wall_thickness();
     let scale = match cell_wall_position {
         CellWallPosition::Left => Vec3::new(wall_thickness, 1.0, 1.0),
@@ -633,9 +744,7 @@ fn spawn_cell_wall(
         CellWallPosition::Top => Vec3::new(1.0, wall_thickness, 1.0),
         CellWallPosition::Bottom => Vec3::new(1.0, wall_thickness, 1.0),
     };
-    commands
-        .spawn()
-        .insert_bundle(SpriteBundle {
+    SpriteBundle {
             sprite: Sprite {
                 color: Color::rgb(0.5, 0.5, 0.3),
                 ..default()
@@ -646,9 +755,7 @@ fn spawn_cell_wall(
                 ..default()
             },
             ..default()
-        })
-        .insert(Collider)
-        .id()
+        }
 }
 
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
@@ -733,9 +840,9 @@ fn check_for_collisions(
                 if collide_y {
                     particle_velocity.y = -particle_velocity.y;
                 }
-                if collide_y || collide_x {
-                    break;
-                }
+                // if collide_y || collide_x {
+                //     break;
+                // }
             }
         }
     }
