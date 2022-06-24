@@ -686,7 +686,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         .insert(RigidBody::Dynamic)
                         ;
                     }).id();
-            } else if cell_type == CellType::Wall {
+                commands.entity(parent_cell).push_children(&cell_genome_entities);
                 commands
                     .spawn()
                     .insert_bundle(SpriteBundle {
@@ -708,21 +708,21 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 }
 
-fn spawn_genome(child_builder: &mut Commands, genome: &Genome) {
+fn spawn_genome(child_builder: &mut Commands, genome: &Genome) -> Vec<Entity> {
     // Spawning each codon in circle inside the parent
     let mut codon_angle:f32 = 0.0;
     let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
     let mut codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
-    for codon in &genome.codons {
+    let codon_entities = genome.codons.iter().map(|codon| {
         let codon_position = Vec2::new(
             CODON_RADIUS * codon_angle.cos(),
             CODON_RADIUS * codon_angle.sin(),
         );
         let codon_position = codon_position.extend(CODON_Z_LAYER);
         let codon_color = codon.type_.get_color();
-        child_builder.spawn()
-            .insert_bundle(SpriteBundle {
-                sprite: Sprite {
+        let codon_entity = child_builder.spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
                     color: codon_color,
                     ..default()
                 },
@@ -733,9 +733,11 @@ fn spawn_genome(child_builder: &mut Commands, genome: &Genome) {
                     ..default()
                 },
                 ..default()
-            });
+        }).id();
         codon_angle += codon_angle_step;
-    };
+        codon_entity
+    }).collect::<Vec<Entity>>();
+    codon_entities
 }
 
 fn spawn_cell_wall(
