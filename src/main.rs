@@ -27,6 +27,7 @@ const WASTE_DESPAWN_PER_TIMER: usize = 4;
 const CELL_Z_LAYER: f32 = 0.0;
 const CELL_WALL_Z_LAYER: f32 = 0.1;
 const CODON_Z_LAYER: f32 = 0.2;
+const CODON_READER_Z_LAYER: f32 = 0.3;
 
 const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 0.125;
@@ -40,7 +41,7 @@ const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
 const CODON_SIZE: f32 = 0.1;
 const CODON_RADIUS: f32 = 0.4;
 const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.3; // how much energy will be taken out of the cell for executing a codon
-const CODON_EXECUTION_RATE: f32 = 0.1; // Seconds between each codon execution for cell
+const CODON_EXECUTION_RATE: f32 = 0.8; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
 const MAX_CODON_IDX: i32 = 60;
@@ -52,6 +53,8 @@ const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
 const FOOD_COLOR: Color = Color::rgb(0.9, 0.1, 0.2);
 const WASTE_COLOR: Color = Color::rgb(0.5, 0.5, 0.2);
+
+const GENOME_READER_COLOR: Color = Color::rgba(0.8, 0.5, 0.5, 0.5);
 
 fn main() {
     App::new()
@@ -80,6 +83,7 @@ fn main() {
         )))
         .add_system(waste_despawner)
         .add_system(codon_executing)
+        .add_system(update_cell_genome_executor)
         .run();
 }
 
@@ -407,6 +411,9 @@ impl CodonExecutor {
 }
 
 #[derive(Component)]
+struct CodonExecutorEntity;
+
+#[derive(Component)]
 struct CellEnergy {
     energy: f32,     // 0.0 - 100.0
     max_energy: f32, // maximum amount of energy
@@ -474,43 +481,9 @@ impl Cell {
         let codon_execution_rate = CODON_EXECUTION_RATE
             + CODON_EXECUTION_RATE * CODON_EXECUTION_RATE_VARIATION * (rand::random::<f32>() - 0.5);
         Cell {
-            // genome: Genome::default(),
-            // cell_memory: CellMemory::new(),
-            // current_codon_reader: 0,
-            // hand_position: 0,
-            // hand_direction: HandDirection::Inward,
-            // last_executed_codon: 0,
-            // energy: DEFAULT_CELL_ENERGY,
-            // max_energy: DEFAULT_CELL_ENERGY,
-            // waste: 0.0,
-            // codon_execution_timer: CodonExecutionTimer(Timer::from_seconds(
-            //     codon_execution_rate,
-            //     true,
-            // )),
-            // wall: CellWall { wall_health: 1.0 },
+
         }
     }
-    // fn new_from_genome(genome: Genome) -> Cell {
-    //     let codon_execution_rate = CODON_EXECUTION_RATE
-    //         + CODON_EXECUTION_RATE * CODON_EXECUTION_RATE_VARIATION * (rand::random::<f32>() - 0.5);
-    //     Cell {
-    //         genome,
-    //         cell_memory: CellMemory::new(),
-    //         current_codon_reader: 0,
-    //         last_executed_codon: 0,
-    //         hand_position: 0,
-    //         hand_direction: HandDirection::Inward,
-    //         energy: DEFAULT_CELL_ENERGY,
-    //         max_energy: DEFAULT_CELL_ENERGY,
-    //         waste: 0.0,
-    //         codon_execution_timer: CodonExecutionTimer(Timer::from_seconds(
-    //             codon_execution_rate,
-    //             true,
-    //         )),
-    //         wall: CellWall { wall_health: 1.0 },
-    //     }
-    // }
-
 }
 
 #[derive(Bundle)]
@@ -656,6 +629,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 let cell = Cell::new();
                 let genome = Genome::default();
                 let cell_genome_entities = spawn_genome(&mut commands, &genome);
+                let cell_genome_executor_entity = spawn_cell_genome_executor(&mut commands, &genome);
                 let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
@@ -687,6 +661,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         ;
                     }).id();
                 commands.entity(parent_cell).push_children(&cell_genome_entities);
+                commands.entity(parent_cell).push_children(&[cell_genome_executor_entity]);
+                } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
                     .insert_bundle(SpriteBundle {
@@ -738,6 +714,33 @@ fn spawn_genome(child_builder: &mut Commands, genome: &Genome) -> Vec<Entity> {
         codon_entity
     }).collect::<Vec<Entity>>();
     codon_entities
+}
+
+fn spawn_cell_genome_executor(commands: &mut Commands, genome: &Genome) -> Entity {
+    let codon_angle: f32 = 0.0;
+    let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+    let reader_position = Vec2::new(
+        CODON_RADIUS * codon_angle.cos(),
+        CODON_RADIUS * codon_angle.sin(),
+    );
+    let reader_position = reader_position.extend(CODON_READER_Z_LAYER);
+    let codon_entity = commands.spawn()
+    .insert_bundle(SpriteBundle {
+        sprite: Sprite {
+                color: GENOME_READER_COLOR,
+                ..default()
+            },
+            transform: Transform {
+            translation: reader_position,
+            scale: Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0),
+            rotation: Quat::from_rotation_z(codon_angle),
+            ..default()
+        },
+        ..default()
+    })
+    .insert(CodonExecutorEntity).id();
+    codon_entity
+    
 }
 
 fn spawn_cell_wall(
@@ -1024,7 +1027,7 @@ fn codon_executing(
                             cell_hand.hand_position = weakest_loc;
                         }
                         _ => {
-                            // cell.repair();
+                            // skip
                         }
                     }
                 }
@@ -1155,4 +1158,44 @@ fn waste_despawner(
             break;
         }
     }
+}
+
+fn update_cell_genome_executor(
+    mut commands: Commands,
+    mut query_codon_executor: Query<(&Parent, &mut Transform), With<CodonExecutorEntity>>,
+    query_cells: Query<(&CodonExecutor, &Genome)>,
+
+) {
+    for (parent, mut executor_transform) in query_codon_executor.iter_mut() {
+        let result = query_cells.get(parent.0);
+        let (codon_executor, genome) = result.unwrap();
+        let codon_reader_pos = codon_executor.current_codon_reader;
+        let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+        let mut codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
+        let codon_angle:f32 = codon_angle_step * codon_reader_pos as f32;
+        let reader_position = Vec2::new(
+            CODON_RADIUS * codon_angle.cos(),
+            CODON_RADIUS * codon_angle.sin(),
+        );
+        let reader_position = reader_position.extend(CODON_READER_Z_LAYER);
+        executor_transform.translation = reader_position;
+        // transform.scale = Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0);
+        executor_transform.rotation = Quat::from_rotation_z(codon_angle);
+            // commands.spawn()
+            // .insert_bundle(SpriteBundle {
+            //     sprite: Sprite {
+            //             color: GENOME_READER_COLOR,
+            //             ..default()
+            //         },
+            //         transform: Transform {
+            //         translation: reader_position,
+            //         scale: Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0),
+            //         rotation: Quat::from_rotation_z(codon_angle),
+            //         ..default()
+            //     },
+            //     ..default()
+            // })
+            // .insert(CodonExecutorEntity)
+            // ;
+        }
 }
