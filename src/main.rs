@@ -1,12 +1,14 @@
 //! A simplified implementation of the classic game "Breakout"
 
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::{
     core::FixedTimestep,
+    input::mouse::{MouseMotion, MouseWheel},
     math::{const_vec2, const_vec3},
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
     tasks::AsyncComputeTaskPool,
-    input::mouse::{MouseMotion, MouseWheel}
+    utils::tracing::dispatcher,
 };
 use bevy_prototype_lyon::prelude::FillMode;
 use bevy_prototype_lyon::prelude::*;
@@ -14,7 +16,6 @@ use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 use std::mem;
 use std::ops::Deref;
-use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
 const PI: f32 = 3.141592653589793;
 // Defines the amount of time that should elapse between each physics step.
@@ -22,7 +23,9 @@ const TIME_STEP: f32 = 1.0 / 60.0;
 
 const WORLD_SIZE: f32 = 800.0;
 const WORLD_SCALE: f32 = 1.0;
+
 const MAX_FOOD: usize = 400;
+const MAX_WASTE: usize = 200;
 
 const FOOD_SPAWN_TIMER: f32 = 0.1;
 const FOOD_SPAWN_RATE: usize = 2;
@@ -35,8 +38,10 @@ const CELL_WALL_Z_LAYER: f32 = 0.1;
 const CODON_READER_Z_LAYER: f32 = 0.15;
 const CODON_Z_LAYER: f32 = 0.2;
 const UGO_Z_LAYER: f32 = 0.1;
+const FOOD_Z_LAYER: f32 = 0.3;
+const WASTE_Z_LAYER: f32 = 0.3;
 
-const CELL_SIZE: Vec2 = const_vec2!([60., 60.]);
+const CELL_SIZE: Vec2 = const_vec2!([35., 35.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 0.125;
 const GAP_BETWEEN_CELLS: f32 = 0.;
 const FOOD_SIZE: f32 = 8.0;
@@ -46,14 +51,14 @@ const ENERGY_RESOLUTION: f32 = 0.1;
 const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
 
 const CODON_SIZE: f32 = 0.1;
-const CODON_RADIUS: f32 = 0.4;
+const CODON_RADIUS: f32 = 0.25;
 const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.03; // how much energy will be taken out of the cell for executing a codon
 const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be taken out of the codon for executing
 
 const CODON_EXECUTION_RATE: f32 = 0.08; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
-const CODON_READ_MUTATION_RATE: f32 = 0.01; // Misread chance when reading codon
+const CODON_READ_MUTATION_RATE: f32 = 0.001; // Misread chance when reading codon
 const MAX_CODON_IDX: i32 = 60;
 const MIN_CODON_IDX: i32 = -60;
 
@@ -64,6 +69,7 @@ const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
 const FOOD_COLOR: Color = Color::rgb(0.9, 0.1, 0.2);
 const WASTE_COLOR: Color = Color::rgb(0.5, 0.5, 0.2);
 const UGO_COLOR: Color = Color::rgb(0.15, 0.1, 0.1);
+const CELL_WALL_COLOR: Color = Color::rgb(0.5, 0.5, 0.5);
 
 const GENOME_READER_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.8);
 
@@ -82,12 +88,14 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
+                .with_system(bevy::transform::transform_propagate_system)
                 .with_system(check_for_collisions)
                 .with_system(apply_velocity.before(check_for_collisions))
                 .with_system(energy_system)
                 .with_system(loop_around),
         )
         .add_system(bevy::input::system::exit_on_esc_system)
+        .add_system(pan_orbit_camera)
         .add_system(energy_color_system)
         .insert_resource(WasteDespawnTimer(Timer::from_seconds(
             WASTE_DISPAWN_TIMER,
@@ -99,7 +107,6 @@ fn main() {
         .add_system(codon_executing)
         .add_system(update_cell_genome_executor)
         .add_system(update_cell_genome)
-        .add_system(pan_orbit_camera)
         .run();
 }
 
@@ -149,7 +156,7 @@ impl CellWall {
     }
     fn get_wall_position_part(&self, cell_wall_position: &CellWallPosition) -> Vec2 {
         match cell_wall_position {
-            CellWallPosition::Left => Vec2::new(-0.5 + self.get_wall_thickness() / 2., 0.),
+            CellWallPosition::Left => Vec2::new(-0.6 + self.get_wall_thickness() / 2., 0.),
             CellWallPosition::Right => Vec2::new(0.5 - self.get_wall_thickness() / 2., 0.),
             CellWallPosition::Top => Vec2::new(0., 0.5 - self.get_wall_thickness() / 2.),
             CellWallPosition::Bottom => Vec2::new(0., -0.5 + self.get_wall_thickness() / 2.),
@@ -198,7 +205,12 @@ enum CodonType {
     WeakLoc,
     Inward,
     Outward,
-    RGL, // Add value in here
+    RGL {
+        f_value_a: f32,
+        f_value_b: f32,
+        i_value_a: i32,
+        i_value_b: i32,
+    }, // Add value in here
     // Additional descriptive codons
     Energy, // If combined with Read, will read Energy levels into cell memory as hp/max_hp ratio
     LogicIf, // If combined with Write, will execute next codons depending on the last read state (if read num > 0.5)
@@ -220,7 +232,12 @@ impl CodonType {
             CodonType::WeakLoc => Color::rgb(0.3, 0.7, 0.3),
             CodonType::Inward => Color::rgb(0.0, 0.4, 0.4),
             CodonType::Outward => Color::rgb(0.0, 0.8, 0.8),
-            CodonType::RGL => Color::rgb(0.5, 0.5, 0.5),
+            CodonType::RGL {
+                f_value_a,
+                f_value_b,
+                i_value_a,
+                i_value_b,
+            } => Color::rgb(0.5, 0.5, 0.5),
             CodonType::Energy => Color::rgb(0.8, 0.0, 0.1),
             CodonType::LogicIf => Color::rgb(1.0, 0.8, 1.0),
         }
@@ -237,20 +254,12 @@ enum HandDirection {
 struct Codon {
     type_: CodonType,
     health: f32,
-    f_value_a: f32,
-    f_value_b: f32,
-    i_value_a: i32,
-    i_value_b: i32,
 }
 
 impl Codon {
     fn replace_from_other(&mut self, other: &Codon) {
         self.type_ = other.type_;
         self.health = other.health;
-        self.f_value_a = other.f_value_a;
-        self.f_value_b = other.f_value_b;
-        self.i_value_a = other.i_value_a;
-        self.i_value_b = other.i_value_b;
     }
 }
 
@@ -299,24 +308,45 @@ impl Genome {
             CodonType::MoveHand,
             CodonType::WeakLoc, //
             CodonType::Read,
-            CodonType::RGL, //
-            CodonType::Write,
-            CodonType::RGL, //
-                            // CodonType::MoveHand, // TEST UGO
-                            // CodonType::Outward, // TEST UGO
-                            // CodonType::Write, // TEST UGO
-                            // CodonType::RGL, // TEST UGO
-        ];
-
-        for codon_type in codon_types.iter() {
-            codons.push(Codon {
-                type_: *codon_type,
-                health: 1.0,
+            CodonType::RGL {
                 f_value_a: 0.0,
                 f_value_b: 0.0,
                 i_value_a: 0,
                 i_value_b: 0,
-            });
+            }, //
+            CodonType::Write,
+            CodonType::RGL {
+                f_value_a: 0.0,
+                f_value_b: 0.0,
+                i_value_a: 0,
+                i_value_b: 0,
+            }, //}
+               // CodonType::MoveHand, // TEST UGO
+               // CodonType::Outward, // TEST UGO
+               // CodonType::Write, // TEST UGO
+               // CodonType::RGL, // TEST UGO
+        ];
+
+        for codon_type in codon_types.iter() {
+            match codon_type {
+                CodonType::RGL {
+                    f_value_a,
+                    f_value_b,
+                    i_value_a,
+                    i_value_b,
+                } => {
+                    codons.push(Codon {
+                        type_: *codon_type,
+                        health: 1.0,
+                    });
+                }
+                _ => {
+                    codons.push(Codon {
+                        type_: *codon_type,
+                        health: 1.0,
+                    });
+                }
+            }
         }
         Genome::new(codons)
     }
@@ -344,7 +374,7 @@ impl Genome {
         let mut new_codon = codon.clone();
         // TODO: Implement partial mutation (only some value or type)
         // let mut codon = codons[loc].clone();
-        let codon_type = rand::random::<u32>() % (CodonType::LogicIf as u32);
+        let codon_type = rand::random::<u32>() % (17);
         new_codon.type_ = match codon_type {
             0 => CodonType::None,
             1 => CodonType::Digest,
@@ -359,20 +389,39 @@ impl Genome {
             10 => CodonType::WeakLoc,
             11 => CodonType::Inward,
             12 => CodonType::Outward,
-            13 => CodonType::RGL,
+            13 => CodonType::RGL {
+                f_value_a: 0.,
+                f_value_b: 0.,
+                i_value_a: 0,
+                i_value_b: 0,
+            },
             14 => CodonType::Energy,
             15 => CodonType::LogicIf,
             _ => CodonType::None,
         };
         new_codon.health = 1.0;
-        new_codon.f_value_a = rand::random::<f32>();
-        new_codon.f_value_b = rand::random::<f32>();
-        new_codon.i_value_a = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
-        new_codon.i_value_b = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
-        if new_codon.i_value_a > new_codon.i_value_b {
-            let temp = new_codon.i_value_a;
-            new_codon.i_value_a = new_codon.i_value_b;
-            new_codon.i_value_b = temp;
+        match new_codon.type_ {
+            CodonType::RGL {
+                f_value_a,
+                f_value_b,
+                i_value_a,
+                i_value_b,
+            } => {
+                let mut temp_i_value_a = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
+                let mut temp_i_value_b = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
+                if temp_i_value_b < temp_i_value_a {
+                    let temp = temp_i_value_a;
+                    temp_i_value_a = temp_i_value_b;
+                    temp_i_value_b = temp;
+                }
+                new_codon.type_ = CodonType::RGL {
+                    f_value_a: rand::random::<f32>(),
+                    f_value_b: rand::random::<f32>(),
+                    i_value_a: temp_i_value_a,
+                    i_value_b: temp_i_value_b,
+                };
+            }
+            _ => {}
         }
 
         new_codon
@@ -381,14 +430,7 @@ impl Genome {
     fn mutate_codon_inplace(&mut self, loc: usize, total_mutation: bool) {
         let mut new_codon = self.mutate_codon(&self.codons[loc].clone());
         self.codons[loc].replace_from_other(&new_codon);
-        println!(
-            "Codon at {} has mutated values to {:?}, {:?}, {:?}, {:?}",
-            loc,
-            self.codons[loc].f_value_a,
-            self.codons[loc].f_value_b,
-            self.codons[loc].i_value_a,
-            self.codons[loc].i_value_b
-        );
+        println!("Codon at {} has mutated", loc,);
     }
 
     fn read_genome(&mut self, start: i32, end: i32) -> Vec<Codon> {
@@ -742,8 +784,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 &parent,
                                 &CellWallPosition::Left,
                                 Collider,
-                            ))
-                            .insert(RigidBody::Dynamic);
+                            )).insert(Collider)
+                            // .insert(RigidBody::Fixed)
+                            ;
                     })
                     // .with_chi
                     .id();
@@ -791,7 +834,7 @@ fn pan_orbit_camera(
 ) {
     // change input mapping for orbit and panning here
     // let orbit_button = MouseButton::Right;
-    let pan_button = MouseButton::Middle;
+    let pan_button = MouseButton::Right;
 
     let mut pan = Vec2::ZERO;
     let mut scroll = 0.0;
@@ -807,25 +850,20 @@ fn pan_orbit_camera(
     }
 
     for (mut pan_orbit, mut transform, mut projection) in query.iter_mut() {
-
         let mut any = false;
-        let pan_scale = Vec2::new(
-            1.0,
-            1.0,
-        );
+        let mut pan_scale = Vec2::new(1.0, 1.0);
         if pan.length_squared() > 0.0 {
             any = true;
             println!("pan: {:?}", pan);
             // make panning distance independent of resolution,
-            let window = get_primary_window_size(&windows);
-            let window_aspect_ratio = window.x / window.y;
-            let pan_scale = Vec2::new(
-                window_aspect_ratio * 1.0,
-                1.0,
-            );
+            // let window = get_primary_window_size(&windows);
+            // let window_aspect_ratio = window.x / window.y;
+            // pan_scale = Vec2::new(
+            //     window_aspect_ratio * 1.0,
+            //     1.0,
+            // );
         } else if scroll.abs() > 0.0 {
             any = true;
-            
         }
 
         if any {
@@ -920,7 +958,7 @@ fn spawn_cell_wall(
     };
     SpriteBundle {
         sprite: Sprite {
-            color: Color::rgb(0.5, 0.5, 0.3),
+            color: CELL_WALL_COLOR,
             ..default()
         },
         transform: Transform {
@@ -979,7 +1017,7 @@ fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>)
             &shape,
             DrawMode::Outlined {
                 fill_mode: FillMode::color(UGO_COLOR),
-                outline_mode: StrokeMode::new(Color::BLACK, 0.),
+                outline_mode: StrokeMode::new(Color::WHITE, 1.),
             },
             Transform {
                 translation: ugo_position.extend(UGO_Z_LAYER),
@@ -1140,7 +1178,7 @@ fn food_dispenser(
             );
             for cell_transform in cells_query.iter() {
                 let collision = collide(
-                    random_food_position.extend(1.0),
+                    random_food_position.extend(FOOD_Z_LAYER),
                     food_size_vec,
                     cell_transform.translation,
                     cell_transform.scale.truncate(),
@@ -1172,7 +1210,7 @@ fn food_dispenser(
                 &shape,
                 DrawMode::Outlined {
                     fill_mode: FillMode::color(FOOD_COLOR),
-                    outline_mode: StrokeMode::new(Color::BLACK, 0.),
+                    outline_mode: StrokeMode::new(Color::BLACK, 1.),
                 },
                 Transform {
                     translation: random_food_position.extend(0.0),
@@ -1347,7 +1385,12 @@ fn codon_executing(
                         }
                     }
                 }
-                CodonType::RGL => {
+                CodonType::RGL {
+                    f_value_a,
+                    f_value_b,
+                    i_value_a,
+                    i_value_b,
+                } => {
                     if cell_hand.hand_direction == HandDirection::Outward {
                         match prev_codon.type_ {
                             CodonType::Write => {
@@ -1361,15 +1404,15 @@ fn codon_executing(
                     }
                     match prev_codon.type_ {
                         CodonType::Read => {
-                            let read_start = cur_codon.i_value_a + cell_hand.hand_position as i32;
-                            let read_end = cur_codon.i_value_b + cell_hand.hand_position as i32;
+                            let read_start = i_value_a + cell_hand.hand_position as i32;
+                            let read_end = i_value_b + cell_hand.hand_position as i32;
                             let read_codons = cell_genome.read_genome(read_start, read_end);
                             cell_memory.codons = read_codons;
                         }
                         CodonType::Write => {
                             // println!("Writing genome!");
-                            let write_start = cur_codon.i_value_a + cell_hand.hand_position as i32;
-                            let write_end = cur_codon.i_value_b + cell_hand.hand_position as i32;
+                            let write_start = i_value_a + cell_hand.hand_position as i32;
+                            let write_end = i_value_b + cell_hand.hand_position as i32;
                             let write_codons = cell_memory.codons.clone();
                             cell_genome.write_genome(write_start, write_end, write_codons);
                         }
@@ -1424,10 +1467,10 @@ fn spawn_waste(commands: &mut Commands, cell_pos: &Transform) {
             &shape,
             DrawMode::Outlined {
                 fill_mode: FillMode::color(WASTE_COLOR),
-                outline_mode: StrokeMode::new(Color::BLACK, 0.),
+                outline_mode: StrokeMode::new(Color::BLACK, 1.),
             },
             Transform {
-                translation: random_waste_position.extend(0.0),
+                translation: random_waste_position.extend(WASTE_Z_LAYER),
                 scale: Vec3::new(1.0, 1.0, 1.0),
                 ..default()
             },
@@ -1449,10 +1492,11 @@ fn waste_despawner(
         return;
     }
     let mut despawned = 0;
+    let total_waste = query.iter().count();
     for entity in query.iter() {
         commands.entity(entity).despawn();
         despawned += 1;
-        if despawned > WASTE_DESPAWN_PER_TIMER {
+        if despawned > WASTE_DESPAWN_PER_TIMER && total_waste - despawned < MAX_WASTE {
             break;
         }
     }
