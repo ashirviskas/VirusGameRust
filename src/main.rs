@@ -815,7 +815,57 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     .insert(Wall);
             }
         }
+    }    
+    let mut codons = Vec::new();
+        // OG first part
+    let codon_types = [
+            CodonType::MoveHand, // TEST UGO
+            CodonType::Inward, // TEST UGO
+            CodonType::Read, // TEST UGO
+            CodonType::RGL {
+            f_value_a: 0.0,
+            f_value_b: 0.0,
+            i_value_a: -7,
+            i_value_b: 7,},
+            CodonType::MoveHand, // TEST UGO
+            CodonType::Outward, // TEST UGO
+            CodonType::Write, // TEST UGO
+            CodonType::RGL {
+            f_value_a: 0.0,
+            f_value_b: 0.0,
+            i_value_a: 0,
+            i_value_b: 0,
+        }, // TEST UGO
+    ];
+
+    for codon_type in codon_types.iter() {
+        match codon_type {
+            CodonType::RGL {
+                f_value_a,
+                f_value_b,
+                i_value_a,
+                i_value_b,
+            } => {
+                codons.push(Codon {
+                    type_: *codon_type,
+                    health: 1.0,
+                });
+            }
+            _ => {
+                codons.push(Codon {
+                    type_: *codon_type,
+                    health: 1.0,
+                });
+            }
+        }
     }
+
+
+    spawn_ugo(&mut commands, &Transform {
+        translation: Vec3::new(15.0, 15.0, 1.0),
+        scale: Vec3::new(CELL_SIZE.x, CELL_SIZE.y, 1.0),
+        ..default()
+    }, &codons );
 }
 
 fn get_primary_window_size(windows: &Res<Windows>) -> Vec2 {
