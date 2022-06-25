@@ -32,6 +32,7 @@ const CELL_Z_LAYER: f32 = 0.0;
 const CELL_WALL_Z_LAYER: f32 = 0.1;
 const CODON_READER_Z_LAYER: f32 = 0.15;
 const CODON_Z_LAYER: f32 = 0.2;
+const UGO_Z_LAYER: f32 = 0.1;
 
 const CELL_SIZE: Vec2 = const_vec2!([60., 60.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 0.125;
@@ -50,15 +51,17 @@ const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be ta
 const CODON_EXECUTION_RATE: f32 = 0.08; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
-const CODON_READ_MUTATION_RATE: f32 = 0.001; // How often a codon can mutate when reading
-
+const CODON_READ_MUTATION_RATE: f32 = 0.001; // Misread chance when reading codon
 const MAX_CODON_IDX: i32 = 60;
 const MIN_CODON_IDX: i32 = -60;
+
+const UGO_SIZE: f32 = 32.0;
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
 const FOOD_COLOR: Color = Color::rgb(0.9, 0.1, 0.2);
 const WASTE_COLOR: Color = Color::rgb(0.5, 0.5, 0.2);
+const UGO_COLOR: Color = Color::rgb(0.15, 0.1, 0.1);
 
 const GENOME_READER_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.8);
 
@@ -158,6 +161,17 @@ struct Food;
 #[derive(Component)]
 struct Waste;
 
+#[derive(Component)]
+struct UGO {
+    codons: Vec<Codon>,
+}
+
+impl UGO {
+    fn new(codons: &Vec<Codon>) -> UGO {
+        UGO { codons: codons.clone()}
+    }
+}
+
 // PartialEq and copy
 #[derive(PartialEq, Copy, Clone)]
 #[repr(u8)]
@@ -177,7 +191,7 @@ enum CodonType {
     WeakLoc,
     Inward,
     Outward,
-    RGL,
+    RGL, // Add value in here
     // Additional descriptive codons
     Energy, // If combined with Read, will read Energy levels into cell memory as hp/max_hp ratio
     LogicIf, // If combined with Write, will execute next codons depending on the last read state (if read num > 0.5)
@@ -281,6 +295,10 @@ impl Genome {
             CodonType::RGL, //
             CodonType::Write,
             CodonType::RGL, //
+            CodonType::MoveHand, // TEST UGO
+            CodonType::Outward, // TEST UGO
+            CodonType::Write, // TEST UGO
+            CodonType::RGL, // TEST UGO
         ];
 
         for codon_type in codon_types.iter() {
@@ -834,6 +852,64 @@ fn spawn_cell_wall(
     }
 }
 
+fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>) -> Entity {
+    let ugo_position = {
+        let rand_sign = if rand::random() { 1. } else { -1. };
+        let rand_wall = rand::random::<bool>();
+        let mut ugo_position = Vec2::new(
+            cell_pos.translation.x + rand_sign * CELL_SIZE.x / 1.75, // A bit further away from the cell
+            cell_pos.translation.y + rand_sign * CELL_SIZE.y / 1.75,
+        );
+        if rand_wall {
+            ugo_position.x += rand::random::<f32>() * CELL_SIZE.x;
+        } else {
+            ugo_position.y += rand::random::<f32>() * CELL_SIZE.y;
+        }
+        ugo_position
+    };
+
+    let ugo_direction = {
+        let left_direction: bool = ugo_position.x < cell_pos.translation.x;
+        let up_direction: bool = ugo_position.y < cell_pos.translation.y;
+        let direction = Vec2::new(
+            if left_direction { 1. } else { -1. },
+            if up_direction { 1. } else { -1. },
+        );
+
+        let mut random_speed =
+            Vec2::new(random::<f32>() * 25.0 + 25.0, random::<f32>() * 25.0 + 25.0);
+        random_speed.x *= direction.x;
+        random_speed.y *= direction.y;
+
+        random_speed
+    };
+    let shape = shapes::Circle {
+        radius: UGO_SIZE / 2.0,
+        center: Vec2::new(0., 0.),
+    };
+    let ugo_entity = commands
+        .spawn_bundle(GeometryBuilder::build_as(
+            &shape,
+            DrawMode::Outlined {
+                fill_mode: FillMode::color(UGO_COLOR),
+                outline_mode: StrokeMode::new(Color::BLACK, 0.),
+            },
+            Transform {
+                translation: ugo_position.extend(UGO_Z_LAYER),
+                scale: Vec3::new(1.0, 1.0, 1.0),
+                ..default()
+            },
+        ))
+        .insert(Collider)
+        .insert(Velocity(ugo_direction))
+        .insert(Particle)
+        .insert(UGO::new(codons))
+        .id();
+    let ugo_codons = spawn_codons(commands, codons);
+    commands.entity(ugo_entity).push_children(&ugo_codons);
+    ugo_entity
+}
+
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
     for (mut transform, velocity) in query.iter_mut() {
         transform.translation.x += velocity.x * TIME_STEP;
@@ -1162,6 +1238,14 @@ fn codon_executing(
                 }
                 CodonType::RGL => {
                     if cell_hand.hand_direction == HandDirection::Outward {
+                        match prev_codon.type_ {
+                            CodonType::Write => {
+                                spawn_ugo(&mut commands, cell_pos, &cell_memory.codons);
+                            }
+                            _ => {
+                                // cell.repair();
+                            }
+                        }
                         break;
                     }
                     match prev_codon.type_ {
@@ -1292,7 +1376,13 @@ fn update_cell_genome(
     query_cells: Query<&Genome>,
 ) {
     for (parent, mut codon_transform, mut sprite, codon_entity) in query_genome.iter_mut() {
-        let genome = query_cells.get(parent.0).unwrap();
+        // if parent not found, skip
+        let genome = {
+            match query_cells.get(parent.0) {
+                Ok(genome) => genome,
+                Err(e) => continue,
+            }
+        };
         let codon_index = codon_entity.codon_index;
         let codon = genome.codons.get(codon_index).unwrap();
         let codon_width = CODON_SIZE * 16.0 / genome.codons.len() as f32 * codon.health;
