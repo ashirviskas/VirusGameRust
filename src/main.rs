@@ -986,6 +986,7 @@ fn check_for_collisions(
                         let ugo = maybe_ugo.unwrap();
                         genome.insert_genes(&executor.current_codon_reader, &ugo.codons);
                         commands.entity(particle_entity).despawn_recursive();
+                        break;
                     }
                 }
 

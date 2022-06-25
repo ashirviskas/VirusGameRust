@@ -13,7 +13,7 @@
 - [ ] - Implement cell walls [**BLOCKED**](https://github.com/bevyengine/bevy/issues/5081)
 - [X] - Mutations
 - [X] - Implement codons visual representation
-- [ ] - Implement UGOs
+- [X] - Implement UGOs
 - [ ] - Implement more advanced waste/ugo removal system
 - [ ] - Implement advanced genes functionality (Change gene reading direction)
 - [ ] - Implement multiplication for cells
