@@ -3,20 +3,19 @@
 
 <img src="https://user-images.githubusercontent.com/11985242/175776480-ff635e2d-1c76-466f-9226-ea89f5a03cb3.png" width="612" height="540">
 
-
 ## Todos
 
 - [x] - Implement cells/walls that do nothing lol
 - [x] - Implement particle functionality
 - [x] - Implement food spawner
-- [x] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> free itself up from waste to get more energy)
+- [x] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get energy -> consume energy -> free itself up from waste to get more energy)
 - [x] - Implement simple genes (OG VirusGame basis) functionality
 - [ ] - Implement cell walls [**BLOCKED**](https://github.com/bevyengine/bevy/issues/5081)
-- [ ] - Mutations
+- [ ] - Mutations [*Partially*]
 - [X] - Implement codons visual representation
 - [ ] - Implement UGOs
 - [ ] - Implement more advanced waste/ugo removal system
-- [ ] - Implement advanced genes functionality ()
+- [ ] - Implement advanced genes functionality (Change gene reading direction)
 - [ ] - Implement multiplication for cells
 - [ ] - GUI editor for cell genes/ugos
 - [ ] - Speed controls (play/pause, faster, slower)
@@ -28,7 +27,7 @@
 - [ ] - Write up what genes do
 - [ ] - Graphs for stats
 - [ ] - Gene stats + graphs (most common snips, gene strings)
-- [ ] - More complex genes (regulate mutation rate, cell ticking rate, etc.)
+- [ ] - More complex genes (regulate mutation rate, cell ticking rate etc.)
 - [ ] - Food production/storage by cells themselves
 - [ ] - Toggle to use only original genes + functionality (maybe)
 - [ ] - World exporting/importing
