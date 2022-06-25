@@ -6,6 +6,7 @@ use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
     tasks::AsyncComputeTaskPool,
+    input::mouse::{MouseMotion, MouseWheel}
 };
 use bevy_prototype_lyon::prelude::FillMode;
 use bevy_prototype_lyon::prelude::*;
@@ -13,6 +14,7 @@ use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 use std::mem;
 use std::ops::Deref;
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 
 const PI: f32 = 3.141592653589793;
 // Defines the amount of time that should elapse between each physics step.
@@ -72,6 +74,8 @@ fn main() {
         .add_plugin(ShapePlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugin(RapierDebugRenderPlugin::default())
+        .add_plugin(LogDiagnosticsPlugin::default())
+        .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_event::<CollisionEvent>()
@@ -95,6 +99,7 @@ fn main() {
         .add_system(codon_executing)
         .add_system(update_cell_genome_executor)
         .add_system(update_cell_genome)
+        .add_system(pan_orbit_camera)
         .run();
 }
 
@@ -765,6 +770,71 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     })
                     .insert(Collider)
                     .insert(Wall);
+            }
+        }
+    }
+}
+
+fn get_primary_window_size(windows: &Res<Windows>) -> Vec2 {
+    let window = windows.get_primary().unwrap();
+    let window = Vec2::new(window.width() as f32, window.height() as f32);
+    window
+}
+
+/// Pan the camera with middle mouse click, zoom with scroll wheel, orbit with right mouse click.
+fn pan_orbit_camera(
+    windows: Res<Windows>,
+    mut ev_motion: EventReader<MouseMotion>,
+    mut ev_scroll: EventReader<MouseWheel>,
+    input_mouse: Res<Input<MouseButton>>,
+    mut query: Query<(&mut Camera, &mut Transform, &mut OrthographicProjection)>,
+) {
+    // change input mapping for orbit and panning here
+    // let orbit_button = MouseButton::Right;
+    let pan_button = MouseButton::Middle;
+
+    let mut pan = Vec2::ZERO;
+    let mut scroll = 0.0;
+
+    if input_mouse.pressed(pan_button) {
+        // Pan only if we're not rotating at the moment
+        for ev in ev_motion.iter() {
+            pan += ev.delta;
+        }
+    }
+    for ev in ev_scroll.iter() {
+        scroll += ev.y;
+    }
+
+    for (mut pan_orbit, mut transform, mut projection) in query.iter_mut() {
+
+        let mut any = false;
+        let pan_scale = Vec2::new(
+            1.0,
+            1.0,
+        );
+        if pan.length_squared() > 0.0 {
+            any = true;
+            println!("pan: {:?}", pan);
+            // make panning distance independent of resolution,
+            let window = get_primary_window_size(&windows);
+            let window_aspect_ratio = window.x / window.y;
+            let pan_scale = Vec2::new(
+                window_aspect_ratio * 1.0,
+                1.0,
+            );
+        } else if scroll.abs() > 0.0 {
+            any = true;
+            
+        }
+
+        if any {
+            transform.translation.x -= pan.x * pan_scale.x * projection.scale; // x is inverted
+            transform.translation.y += pan.y * pan_scale.y * projection.scale;
+
+            projection.scale = projection.scale - scroll * 0.1;
+            if projection.scale < 0.1 {
+                projection.scale = 0.1;
             }
         }
     }

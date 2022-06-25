@@ -22,6 +22,7 @@
 - [ ] - Speed controls (play/pause, faster, slower)
 - [ ] - Simulation settings in general
 - [ ] - Stats (alive, mutations, "natural" vs "replicated")
+- [X] - Pan/zoom camera
 
 ## Nice to haves
 
