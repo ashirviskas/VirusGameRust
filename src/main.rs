@@ -7,11 +7,11 @@ use bevy::{
     sprite::collide_aabb::{collide, Collision},
     tasks::AsyncComputeTaskPool,
 };
-use bevy_prototype_lyon::prelude::*;
 use bevy_prototype_lyon::prelude::FillMode;
+use bevy_prototype_lyon::prelude::*;
+use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 use std::ops::Deref;
-use bevy_rapier2d::prelude::*;
 
 const PI: f32 = 3.141592653589793;
 // Defines the amount of time that should elapse between each physics step.
@@ -83,10 +83,7 @@ fn main() {
             WASTE_DISPAWN_TIMER,
             true,
         )))
-        .insert_resource(FoodSpawnTimer(Timer::from_seconds(
-            FOOD_SPAWN_TIMER,
-            true,
-        )))
+        .insert_resource(FoodSpawnTimer(Timer::from_seconds(FOOD_SPAWN_TIMER, true)))
         .add_system(waste_despawner)
         .add_system(food_dispenser)
         .add_system(codon_executing)
@@ -97,7 +94,6 @@ fn main() {
 #[derive(Component)]
 struct Particle;
 struct FoodSpawnTimer(Timer);
-
 
 struct WasteDespawnTimer(Timer);
 
@@ -139,10 +135,7 @@ impl CellWall {
     fn get_wall_thickness(&self) -> f32 {
         DEFAULT_CELL_WALL_THICKNESS * self.wall_health
     }
-    fn get_wall_position_part(
-        &self,
-        cell_wall_position: &CellWallPosition,
-    ) -> Vec2 {
+    fn get_wall_position_part(&self, cell_wall_position: &CellWallPosition) -> Vec2 {
         match cell_wall_position {
             CellWallPosition::Left => Vec2::new(-0.5 + self.get_wall_thickness() / 2., 0.),
             CellWallPosition::Right => Vec2::new(0.5 - self.get_wall_thickness() / 2., 0.),
@@ -224,6 +217,9 @@ struct Codon {
     i_value_a: i32,
     i_value_b: i32,
 }
+
+#[derive(Component)]
+struct CodonEntity;
 
 #[derive(Component)]
 struct Genome {
@@ -411,12 +407,11 @@ impl CodonExecutor {
             current_codon_reader: 0,
             last_executed_codon: 0,
             codon_execution_timer: CodonExecutionTimer(Timer::from_seconds(
-                    codon_execution_rate,
-                    true,
-                )),
+                codon_execution_rate,
+                true,
+            )),
         }
     }
-    
 }
 
 #[derive(Component)]
@@ -430,13 +425,13 @@ struct CellEnergy {
 }
 
 impl CellEnergy {
-     fn new() -> CellEnergy {
-         CellEnergy {
-                energy: DEFAULT_CELL_ENERGY,
-                max_energy: DEFAULT_CELL_ENERGY,
-                waste: 0.0,
-         }
-     }
+    fn new() -> CellEnergy {
+        CellEnergy {
+            energy: DEFAULT_CELL_ENERGY,
+            max_energy: DEFAULT_CELL_ENERGY,
+            waste: 0.0,
+        }
+    }
     fn remove_energy(&mut self, amount: f32) -> bool {
         if self.energy >= amount {
             self.energy -= amount;
@@ -489,9 +484,7 @@ impl Cell {
     fn new() -> Cell {
         let codon_execution_rate = CODON_EXECUTION_RATE
             + CODON_EXECUTION_RATE * CODON_EXECUTION_RATE_VARIATION * (rand::random::<f32>() - 0.5);
-        Cell {
-
-        }
+        Cell {}
     }
 }
 
@@ -517,17 +510,21 @@ impl CellBundle {
 struct CellWallBundle {
     #[bundle]
     cell_wall: SpriteBundle,
-    collider: Collider
+    collider: Collider,
 }
 
 impl CellWallBundle {
-    fn new(cell_wall:&CellWall, parent: &ChildBuilder, cell_wall_position: &CellWallPosition, collider:Collider) -> CellWallBundle {
+    fn new(
+        cell_wall: &CellWall,
+        parent: &ChildBuilder,
+        cell_wall_position: &CellWallPosition,
+        collider: Collider,
+    ) -> CellWallBundle {
         let cell_walls = spawn_cell_wall(&parent, cell_wall, cell_wall_position);
-        CellWallBundle{
-            cell_wall:cell_walls,
+        CellWallBundle {
+            cell_wall: cell_walls,
             collider,
         }
-
     }
 }
 
@@ -618,7 +615,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let offset_x = CELL_SIZE.x - (WORLD_SIZE * WORLD_SCALE / 2.);
     let offset_y = CELL_SIZE.y - WORLD_SIZE * WORLD_SCALE / 2.;
 
-
     for row in 0..n_rows {
         for column in 0..n_columns {
             let cell_idx = should_spawn_type(row, column, n_rows);
@@ -638,7 +634,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 let cell = Cell::new();
                 let genome = Genome::default();
                 let cell_genome_entities = spawn_genome(&mut commands, &genome);
-                let cell_genome_executor_entity = spawn_cell_genome_executor(&mut commands, &genome);
+                let cell_genome_executor_entity =
+                    spawn_cell_genome_executor(&mut commands, &genome);
                 let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
@@ -665,13 +662,23 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     .insert(CellHand::new())
                     .insert(CellEnergy::new())
                     .with_children(|parent| {
-                        parent.spawn_bundle(CellWallBundle::new(&cell_wall, &parent, &CellWallPosition::Left, Collider))
-                        .insert(RigidBody::Dynamic)
-                        ;
-                    }).id();
-                commands.entity(parent_cell).push_children(&cell_genome_entities);
-                commands.entity(parent_cell).push_children(&[cell_genome_executor_entity]);
-                } else if cell_type == CellType::Wall {
+                        parent
+                            .spawn_bundle(CellWallBundle::new(
+                                &cell_wall,
+                                &parent,
+                                &CellWallPosition::Left,
+                                Collider,
+                            ))
+                            .insert(RigidBody::Dynamic);
+                    })
+                    .id();
+                commands
+                    .entity(parent_cell)
+                    .push_children(&cell_genome_entities);
+                commands
+                    .entity(parent_cell)
+                    .push_children(&[cell_genome_executor_entity]);
+            } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
                     .insert_bundle(SpriteBundle {
@@ -695,61 +702,68 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn spawn_genome(child_builder: &mut Commands, genome: &Genome) -> Vec<Entity> {
     // Spawning each codon in circle inside the parent
-    let mut codon_angle:f32 = 0.0;
-    let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
-    let mut codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
-    let codon_entities = genome.codons.iter().map(|codon| {
-        let codon_position = Vec2::new(
-            CODON_RADIUS * codon_angle.cos(),
-            CODON_RADIUS * codon_angle.sin(),
-        );
-        let codon_position = codon_position.extend(CODON_Z_LAYER);
-        let codon_color = codon.type_.get_color();
-        let codon_entity = child_builder.spawn()
-        .insert_bundle(SpriteBundle {
-            sprite: Sprite {
-                    color: codon_color,
+    let mut codon_angle: f32 = 0.0;
+    let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+    let mut codon_angle_step: f32 = 2.0 * PI / genome.codons.len() as f32;
+    let codon_entities = genome
+        .codons
+        .iter()
+        .map(|codon| {
+            let codon_position = Vec2::new(
+                CODON_RADIUS * codon_angle.cos(),
+                CODON_RADIUS * codon_angle.sin(),
+            );
+            let codon_position = codon_position.extend(CODON_Z_LAYER);
+            let codon_color = codon.type_.get_color();
+            let codon_entity = child_builder
+                .spawn()
+                .insert_bundle(SpriteBundle {
+                    sprite: Sprite {
+                        color: codon_color,
+                        ..default()
+                    },
+                    transform: Transform {
+                        translation: codon_position,
+                        scale: Vec3::new(CODON_SIZE, codon_width, 1.0),
+                        rotation: Quat::from_rotation_z(codon_angle),
+                        ..default()
+                    },
                     ..default()
-                },
-                transform: Transform {
-                    translation: codon_position,
-                    scale: Vec3::new(CODON_SIZE, codon_width, 1.0),
-                    rotation: Quat::from_rotation_z(codon_angle),
-                    ..default()
-                },
-                ..default()
-        }).id();
-        codon_angle += codon_angle_step;
-        codon_entity
-    }).collect::<Vec<Entity>>();
+                })
+                .id();
+            codon_angle += codon_angle_step;
+            codon_entity
+        })
+        .collect::<Vec<Entity>>();
     codon_entities
 }
 
 fn spawn_cell_genome_executor(commands: &mut Commands, genome: &Genome) -> Entity {
     let codon_angle: f32 = 0.0;
-    let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+    let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
     let reader_position = Vec2::new(
         CODON_RADIUS * codon_angle.cos(),
         CODON_RADIUS * codon_angle.sin(),
     );
     let reader_position = reader_position.extend(CODON_READER_Z_LAYER);
-    let codon_entity = commands.spawn()
-    .insert_bundle(SpriteBundle {
-        sprite: Sprite {
+    let codon_entity = commands
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite {
                 color: GENOME_READER_COLOR,
                 ..default()
             },
             transform: Transform {
-            translation: reader_position,
-            scale: Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0),
-            rotation: Quat::from_rotation_z(codon_angle),
+                translation: reader_position,
+                scale: Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0),
+                rotation: Quat::from_rotation_z(codon_angle),
+                ..default()
+            },
             ..default()
-        },
-        ..default()
-    })
-    .insert(CodonExecutorEntity).id();
+        })
+        .insert(CodonExecutorEntity)
+        .id();
     codon_entity
-    
 }
 
 fn spawn_cell_wall(
@@ -767,17 +781,17 @@ fn spawn_cell_wall(
         CellWallPosition::Bottom => Vec3::new(1.0, wall_thickness, 1.0),
     };
     SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgb(0.5, 0.5, 0.3),
-                ..default()
-            },
-            transform: Transform {
-                translation: wall_position.extend(CELL_WALL_Z_LAYER),
-                scale: scale,
-                ..default()
-            },
+        sprite: Sprite {
+            color: Color::rgb(0.5, 0.5, 0.3),
             ..default()
-        }
+        },
+        transform: Transform {
+            translation: wall_position.extend(CELL_WALL_Z_LAYER),
+            scale: scale,
+            ..default()
+        },
+        ..default()
+    }
 }
 
 fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
@@ -806,7 +820,10 @@ fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
 fn check_for_collisions(
     mut commands: Commands,
     mut particle_query: Query<(Entity, &mut Velocity, &Transform, Option<&Food>), With<Particle>>,
-    mut collider_query: Query<(&Transform, Option<(&mut Cell, &mut CellEnergy)>), (With<Collider>, Without<Particle>)>,
+    mut collider_query: Query<
+        (&Transform, Option<(&mut Cell, &mut CellEnergy)>),
+        (With<Collider>, Without<Particle>),
+    >,
     mut collision_events: EventWriter<CollisionEvent>,
 ) {
     if particle_query.iter().count() == 0 {
@@ -873,7 +890,7 @@ fn check_for_collisions(
 fn food_dispenser(
     mut commands: Commands,
     time: Res<Time>,
-    mut timer: ResMut<FoodSpawnTimer>, 
+    mut timer: ResMut<FoodSpawnTimer>,
     food_query: Query<(&Particle, &Food)>,
     cells_query: Query<&Transform, (With<Collider>, Without<Food>)>,
 ) {
@@ -940,17 +957,33 @@ fn food_dispenser(
             .insert(Velocity(random_direction))
             .insert(Particle);
         spawned_num += 1;
-        
     }
 }
 
 fn codon_executing(
     mut commands: Commands,
     time: Res<Time>,
-    mut cell_query: Query<(&mut Cell, &mut Genome, &mut CodonExecutor, &mut CellHand, &mut CellEnergy, &mut CellMemory, &Transform)>,
+    mut cell_query: Query<(
+        &mut Cell,
+        &mut Genome,
+        &mut CodonExecutor,
+        &mut CellHand,
+        &mut CellEnergy,
+        &mut CellMemory,
+        &Transform,
+    )>,
     pool: Res<AsyncComputeTaskPool>,
 ) {
-    for (mut cell, mut cell_genome, mut cell_codon_executor, mut cell_hand, mut cell_energy, mut cell_memory, cell_pos) in cell_query.iter_mut() {
+    for (
+        mut cell,
+        mut cell_genome,
+        mut cell_codon_executor,
+        mut cell_hand,
+        mut cell_energy,
+        mut cell_memory,
+        cell_pos,
+    ) in cell_query.iter_mut()
+    {
         if !cell_codon_executor
             .codon_execution_timer
             .0
@@ -1016,7 +1049,8 @@ fn codon_executing(
                     }
                     match prev_codon.type_ {
                         CodonType::Remove => {
-                            let removed_waste = cell_energy.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
+                            let removed_waste =
+                                cell_energy.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
                             if removed_waste {
                                 // println!("Removed waste");
                                 spawn_waste(&mut commands, cell_pos);
@@ -1089,8 +1123,7 @@ fn codon_executing(
                             let write_start = cur_codon.i_value_a + cell_hand.hand_position as i32;
                             let write_end = cur_codon.i_value_b + cell_hand.hand_position as i32;
                             let write_codons = cell_memory.codons.clone();
-                            cell_genome
-                                .write_genome(write_start, write_end, write_codons);
+                            cell_genome.write_genome(write_start, write_end, write_codons);
                         }
                         _ => {
                             // cell.repair();
@@ -1112,8 +1145,7 @@ fn codon_executing(
         }
         // remove health for codon
         // cur_codon.health -= CODON_HEALTH_COST_PER_EXECUTION;
-        cell_genome
-            .damage_codon(current_codon_reader, CODON_HEALTH_COST_PER_EXECUTION);
+        cell_genome.damage_codon(current_codon_reader, CODON_HEALTH_COST_PER_EXECUTION);
 
         cell_codon_executor.last_executed_codon = cell_codon_executor.current_codon_reader;
         cell_codon_executor.current_codon_reader += 1;
@@ -1179,18 +1211,16 @@ fn waste_despawner(
 }
 
 fn update_cell_genome_executor(
-    mut commands: Commands,
     mut query_codon_executor: Query<(&Parent, &mut Transform), With<CodonExecutorEntity>>,
     query_cells: Query<(&CodonExecutor, &Genome)>,
-
 ) {
     for (parent, mut executor_transform) in query_codon_executor.iter_mut() {
         let result = query_cells.get(parent.0);
         let (codon_executor, genome) = result.unwrap();
         let codon_reader_pos = codon_executor.current_codon_reader;
-        let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
-        let codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
-        let codon_angle:f32 = codon_angle_step * codon_reader_pos as f32;
+        let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+        let codon_angle_step: f32 = 2.0 * PI / genome.codons.len() as f32;
+        let codon_angle: f32 = codon_angle_step * codon_reader_pos as f32;
         let reader_position = Vec2::new(
             CODON_RADIUS * codon_angle.cos(),
             CODON_RADIUS * codon_angle.sin(),
@@ -1199,21 +1229,11 @@ fn update_cell_genome_executor(
         executor_transform.translation = reader_position;
         executor_transform.scale = Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0);
         executor_transform.rotation = Quat::from_rotation_z(codon_angle);
-            // commands.spawn()
-            // .insert_bundle(SpriteBundle {
-            //     sprite: Sprite {
-            //             color: GENOME_READER_COLOR,
-            //             ..default()
-            //         },
-            //         transform: Transform {
-            //         translation: reader_position,
-            //         scale: Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0),
-            //         rotation: Quat::from_rotation_z(codon_angle),
-            //         ..default()
-            //     },
-            //     ..default()
-            // })
-            // .insert(CodonExecutorEntity)
-            // ;
-        }
+    }
 }
+// fn update_cell_genome(
+//     mut query_genome: Query<(&mut Transform), With<CodonEntity>>,
+//     mut query_cells: Query<(&Genome, &Children)>,
+// ) {
+//     f
+// }

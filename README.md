@@ -8,9 +8,9 @@
 - [x] - Implement food spawner
 - [x] - Implement simple food -> energy -> waste cycle with a spin on it (eat -> get enerty -> consume energy -> free itself up from waste to get more energy)
 - [x] - Implement simple genes (OG VirusGame basis) functionality
-- [ ] - Implement cell walls
+- [ ] - Implement cell walls [**BLOCKED**](https://github.com/bevyengine/bevy/issues/5081)
 - [ ] - Mutations
-- [ ] - Implement codons visual representation
+- [X] - Implement codons visual representation
 - [ ] - Implement UGOs
 - [ ] - Implement more advanced waste/ugo removal system
 - [ ] - Implement advanced genes functionality ()
