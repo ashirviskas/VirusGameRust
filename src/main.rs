@@ -45,13 +45,14 @@ const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
 const CODON_SIZE: f32 = 0.1;
 const CODON_RADIUS: f32 = 0.4;
 const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.03; // how much energy will be taken out of the cell for executing a codon
+const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be taken out of the codon for executing
+
 const CODON_EXECUTION_RATE: f32 = 0.08; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
 const MAX_CODON_IDX: i32 = 60;
 const MIN_CODON_IDX: i32 = -60;
 
-const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be taken out of the codon for executing
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
@@ -374,6 +375,9 @@ impl Genome {
                 pos_i = pos_i + (self.codons.len() as i32);
             }
             let pos_u: usize = pos_i as usize;
+            if reading_hand_pos >= new_codons.len() { // TODO: Implement a wrap around for the future
+                break;
+            }
             let mut new_codon = new_codons[reading_hand_pos].clone();
             new_codon.health = 1.0; // setting health to 1.0 when writing
             self.codons[pos_u].replace_from_other(&new_codon);
@@ -675,7 +679,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     .insert(genome)
                     .insert(CellMemory::new())
                     .insert(CodonExecutor::new())
-                    .insert(CellMemory::new())
                     .insert(CellHand::new())
                     .insert(CellEnergy::new())
                     .with_children(|parent| {
@@ -1257,10 +1260,10 @@ fn update_cell_genome_executor(
     }
 }
 fn update_cell_genome(
-    mut query_genome: Query<(&Parent, &mut Transform, &CodonEntity), With<CodonEntity>>,
+    mut query_genome: Query<(&Parent, &mut Transform, &mut Sprite, &CodonEntity), With<CodonEntity>>,
     query_cells: Query<&Genome>,
 ) {
-    for (parent, mut codon_transform, codon_entity) in query_genome.iter_mut() {
+    for (parent, mut codon_transform, mut sprite, codon_entity) in query_genome.iter_mut() {
         let genome = query_cells.get(parent.0).unwrap();
         let codon_index = codon_entity.codon_index;
         let codon = genome.codons.get(codon_index).unwrap();
@@ -1270,5 +1273,6 @@ fn update_cell_genome(
             codon_width,
             1.0,
         );
+        sprite.color = codon.type_.get_color();
     }
 }
