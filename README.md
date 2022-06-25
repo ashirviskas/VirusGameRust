@@ -14,7 +14,8 @@
 - [X] - Mutations
 - [X] - Implement codons visual representation
 - [X] - Implement UGOs
-- [ ] - Implement more advanced waste/ugo removal system
+- [X] - Fix miniscule food uptake
+- [ ] - Implement more advanced waste/ugo removal system [After walls]
 - [ ] - Implement advanced genes functionality (Change gene reading direction)
 - [ ] - Implement multiplication for cells
 - [ ] - GUI editor for cell genes/ugos

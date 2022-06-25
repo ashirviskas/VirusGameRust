@@ -511,14 +511,15 @@ impl CellEnergy {
         }
     }
     fn add_energy(&mut self, amount: f32) -> bool {
-        if self.energy + self.waste + ENERGY_RESOLUTION >= self.max_energy {
+        if self.energy + self.waste + ENERGY_RESOLUTION + amount >= self.max_energy {
+            // If the cell is full of energy + waste
             false
-        } else if self.energy + self.waste + amount > self.max_energy {
-            self.energy = self.max_energy - self.waste;
-            true
-        } else {
+        } else if self.energy + self.waste + amount / 3.0 < self.max_energy {
+            // The cell has space for at least a third of the energy
             self.energy += amount;
             true
+        } else {
+            false
         }
     }
     fn remove_waste(&mut self, amount: f32) -> bool {
@@ -1219,8 +1220,7 @@ fn codon_executing(
                     }
                     match prev_codon.type_ {
                         CodonType::Remove => {
-                            let removed_waste =
-                                cell_energy.remove_waste(DEFAULT_CELL_ENERGY * 0.25); // Frees up 25% of cells energy potential from waste
+                            let removed_waste = cell_energy.remove_waste(FOOD_ENERGY * 0.6); // Frees up some energy potential from waste
                             if removed_waste {
                                 // println!("Removed waste");
                                 spawn_waste(&mut commands, cell_pos);
@@ -1396,8 +1396,8 @@ fn update_cell_genome_executor(
         let result = query_cells.get(parent.0);
         let (codon_executor, genome) = result.unwrap();
         let codon_reader_pos = codon_executor.current_codon_reader;
-        let codon_width: f32 = CODON_SIZE * 16.0 / 22 as f32;
-        let codon_angle_step: f32 = 2.0 * PI / 22 as f32;
+        let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+        let codon_angle_step: f32 = 2.0 * PI / genome.codons.len() as f32;
         let codon_angle: f32 = codon_angle_step * codon_reader_pos as f32;
         let reader_position = Vec2::new(
             CODON_RADIUS * codon_angle.cos(),
