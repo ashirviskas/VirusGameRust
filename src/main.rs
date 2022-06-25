@@ -423,6 +423,13 @@ impl Genome {
             reading_hand_pos += 1;
         }
     }
+    fn insert_genes(&mut self, start: &usize, new_codons: &Vec<Codon>) {
+        let mut i = *start;
+        for new_codon in new_codons {
+            self.codons.insert(i, new_codon.clone());
+            i+=1;
+        }        
+    }
 }
 
 #[derive(Component)]
@@ -935,9 +942,9 @@ fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
 
 fn check_for_collisions(
     mut commands: Commands,
-    mut particle_query: Query<(Entity, &mut Velocity, &Transform, Option<&Food>), With<Particle>>,
+    mut particle_query: Query<(Entity, &mut Velocity, &Transform, Option<&Food>, Option<&UGO>), With<Particle>>,
     mut collider_query: Query<
-        (&Transform, Option<(&mut Cell, &mut CellEnergy)>),
+        (&Transform, Option<(&mut Cell, &mut CellEnergy)>, Option<(&mut Genome, &mut CodonExecutor)>),
         (With<Collider>, Without<Particle>),
     >,
     mut collision_events: EventWriter<CollisionEvent>,
@@ -948,11 +955,11 @@ fn check_for_collisions(
     // let (mut ball_velocity, ball_transform) = particle_query.single_mut();
     // let ball_size = ball_transform.scale.truncate();
     let particle_size: Vec2 = const_vec2!([FOOD_SIZE, FOOD_SIZE]);
-    for (particle_entity, mut particle_velocity, particle_transform, maybe_food) in
+    for (particle_entity, mut particle_velocity, particle_transform, maybe_food, maybe_ugo) in
         particle_query.iter_mut()
     {
         // check collision with walls
-        for (transform, mut maybe_cell_and_energy) in collider_query.iter_mut() {
+        for (transform, mut maybe_cell_and_energy, mut maybe_genome_and_executor) in collider_query.iter_mut() {
             let collision = collide(
                 particle_transform.translation,
                 particle_size,
@@ -970,6 +977,15 @@ fn check_for_collisions(
                             commands.entity(particle_entity).despawn();
                             break;
                         }
+                    }
+                }
+                if maybe_ugo.is_some() {
+                    if maybe_genome_and_executor.is_some() {
+                        // insert UGO genes to cell
+                        let (genome, executor) = maybe_genome_and_executor.as_mut().unwrap();
+                        let ugo = maybe_ugo.unwrap();
+                        genome.insert_genes(&executor.current_codon_reader, &ugo.codons);
+                        commands.entity(particle_entity).despawn_recursive();
                     }
                 }
 
