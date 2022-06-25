@@ -12,6 +12,7 @@ use bevy_prototype_lyon::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::prelude::*;
 use std::ops::Deref;
+use std::mem;
 
 const PI: f32 = 3.141592653589793;
 // Defines the amount of time that should elapse between each physics step.
@@ -88,6 +89,7 @@ fn main() {
         .add_system(food_dispenser)
         .add_system(codon_executing)
         .add_system(update_cell_genome_executor)
+        .add_system(update_cell_genome)
         .run();
 }
 
@@ -208,7 +210,7 @@ enum HandDirection {
     Outward,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Component)]
 struct Codon {
     type_: CodonType,
     health: f32,
@@ -218,19 +220,39 @@ struct Codon {
     i_value_b: i32,
 }
 
-#[derive(Component)]
-struct CodonEntity;
+impl Codon {
+    fn replace_from_other(&mut self, other: &Codon) {
+        self.type_ = other.type_;
+        self.health = other.health;
+        self.f_value_a = other.f_value_a;
+        self.f_value_b = other.f_value_b;
+        self.i_value_a = other.i_value_a;
+        self.i_value_b = other.i_value_b;
+    }
+}
 
 #[derive(Component)]
-struct Genome {
+struct CodonEntity {
+    codon_index: usize,
+}
+
+impl CodonEntity {
+    fn new(codon_index: usize) -> CodonEntity {
+        CodonEntity { codon_index }
+    }
+}
+
+#[derive(Component)]
+struct Genome{
     codons: Vec<Codon>,
 }
 
 impl Genome {
-    fn new(codons: Vec<Codon>) -> Genome {
-        Genome { codons }
-    }
     // default genome
+    fn new(genome: Vec<Codon>) -> Genome {
+        Genome { codons: genome }
+    }
+
     fn default() -> Genome {
         let mut codons = Vec::new();
         // OG first part
@@ -269,10 +291,10 @@ impl Genome {
                 i_value_b: 0,
             });
         }
-        Genome { codons }
+        Genome::new(codons)
     }
 
-    fn get_weakest_loc(&self) -> usize {
+    fn get_weakest_loc(&mut self) -> usize {
         let mut weakest_loc = 0;
         let mut weakest_health = 1.0;
         for (i, codon) in self.codons.iter().enumerate() {
@@ -293,9 +315,9 @@ impl Genome {
     }
     fn mutate_codon(&mut self, loc: usize, total_mutation: bool) {
         // TODO: Implement partial mutation (only some value or type)
-        let mut codon = self.codons[loc].clone();
+        // let mut codon = codons[loc].clone();
         let codon_type = rand::random::<u32>() % (CodonType::LogicIf as u32);
-        codon.type_ = match codon_type {
+        self.codons[loc].type_ = match codon_type {
             0 => CodonType::None,
             1 => CodonType::Digest,
             2 => CodonType::Remove,
@@ -314,36 +336,35 @@ impl Genome {
             15 => CodonType::LogicIf,
             _ => CodonType::None,
         };
-        codon.health = 1.0;
-        codon.f_value_a = rand::random::<f32>();
-        codon.f_value_b = rand::random::<f32>();
-        codon.i_value_a = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
-        codon.i_value_b = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
-        if codon.i_value_a > codon.i_value_b {
-            let temp = codon.i_value_a;
-            codon.i_value_a = codon.i_value_b;
-            codon.i_value_b = temp;
+        self.codons[loc].health = 1.0;
+        self.codons[loc].f_value_a = rand::random::<f32>();
+        self.codons[loc].f_value_b = rand::random::<f32>();
+        self.codons[loc].i_value_a = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
+        self.codons[loc].i_value_b = ((rand::random::<f32>() - 0.5) * 120.0) as i32;
+        if self.codons[loc].i_value_a > self.codons[loc].i_value_b {
+            let temp = self.codons[loc].i_value_a;
+            self.codons[loc].i_value_a = self.codons[loc].i_value_b;
+            self.codons[loc].i_value_b = temp;
         }
         println!(
             "Codon at {} has mutated values to {:?}, {:?}, {:?}, {:?}",
-            loc, codon.f_value_a, codon.f_value_b, codon.i_value_a, codon.i_value_b
+            loc, self.codons[loc].f_value_a, self.codons[loc].f_value_b, self.codons[loc].i_value_a, self.codons[loc].i_value_b
         );
-        self.codons[loc] = codon;
     }
 
     fn read_genome(&self, start: i32, end: i32) -> Vec<Codon> {
-        let mut codons = Vec::new();
+        let mut new_codons = Vec::new();
         for i in start..end + 1 {
             let mut pos_i = i % (self.codons.len() as i32);
             if pos_i < 0 {
                 pos_i = pos_i + (self.codons.len() as i32);
             }
             let pos_u: usize = pos_i as usize;
-            codons.push(self.codons[pos_u].clone());
+            new_codons.push(self.codons[pos_u].clone());
         }
-        codons
+        new_codons
     }
-    fn write_genome(&mut self, start: i32, end: i32, codons: Vec<Codon>) {
+    fn write_genome(&mut self, start: i32, end: i32, new_codons: Vec<Codon>) {
         // TODO: Fix when start and end are > than the genome length
         let mut reading_hand_pos = 0;
         for i in start..end + 1 {
@@ -353,15 +374,11 @@ impl Genome {
                 pos_i = pos_i + (self.codons.len() as i32);
             }
             let pos_u: usize = pos_i as usize;
-            let mut new_codon = codons[reading_hand_pos].clone();
+            let mut new_codon = new_codons[reading_hand_pos].clone();
             new_codon.health = 1.0; // setting health to 1.0 when writing
-            self.codons[pos_u] = new_codon;
+            self.codons[pos_u].replace_from_other(&new_codon);
             reading_hand_pos += 1;
         }
-    }
-
-    fn get_codon(&self, codon_idx: usize) -> &Codon {
-        &self.codons[codon_idx]
     }
 }
 
@@ -632,10 +649,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             if cell_type == CellType::Cell {
                 let cell_wall = CellWall::new();
                 let cell = Cell::new();
-                let genome = Genome::default();
-                let cell_genome_entities = spawn_genome(&mut commands, &genome);
+                let mut genome = Genome::default();
+                let cell_codon_entities = spawn_codons(&mut commands, &genome.codons);
                 let cell_genome_executor_entity =
-                    spawn_cell_genome_executor(&mut commands, &genome);
+                    spawn_cell_genome_executor(&mut commands, &genome.codons);
                 let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
@@ -671,10 +688,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                             ))
                             .insert(RigidBody::Dynamic);
                     })
+                    // .with_chi
                     .id();
                 commands
                     .entity(parent_cell)
-                    .push_children(&cell_genome_entities);
+                    .push_children(&cell_codon_entities);
                 commands
                     .entity(parent_cell)
                     .push_children(&[cell_genome_executor_entity]);
@@ -700,15 +718,13 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     }
 }
 
-fn spawn_genome(child_builder: &mut Commands, genome: &Genome) -> Vec<Entity> {
+fn spawn_codons(child_builder: &mut Commands, codons: &Vec<Codon>) -> Vec<Entity> {
     // Spawning each codon in circle inside the parent
     let mut codon_angle: f32 = 0.0;
-    let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
-    let mut codon_angle_step: f32 = 2.0 * PI / genome.codons.len() as f32;
-    let codon_entities = genome
-        .codons
-        .iter()
-        .map(|codon| {
+    let codon_width: f32 = CODON_SIZE * 16.0 / codons.len() as f32;
+    let mut codon_angle_step: f32 = 2.0 * PI / codons.len() as f32;
+    let mut codon_entities = vec![];
+    for (idx, codon) in codons.iter().enumerate() {
             let codon_position = Vec2::new(
                 CODON_RADIUS * codon_angle.cos(),
                 CODON_RADIUS * codon_angle.sin(),
@@ -729,18 +745,17 @@ fn spawn_genome(child_builder: &mut Commands, genome: &Genome) -> Vec<Entity> {
                         ..default()
                     },
                     ..default()
-                })
+                }).insert(CodonEntity{codon_index: idx})
                 .id();
             codon_angle += codon_angle_step;
-            codon_entity
-        })
-        .collect::<Vec<Entity>>();
+            codon_entities.push(codon_entity);
+        }
     codon_entities
 }
 
-fn spawn_cell_genome_executor(commands: &mut Commands, genome: &Genome) -> Entity {
+fn spawn_cell_genome_executor(commands: &mut Commands, codons: &Vec<Codon>) -> Entity {
     let codon_angle: f32 = 0.0;
-    let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
+    let codon_width: f32 = CODON_SIZE * 16.0 / codons.len() as f32;
     let reader_position = Vec2::new(
         CODON_RADIUS * codon_angle.cos(),
         CODON_RADIUS * codon_angle.sin(),
@@ -970,8 +985,10 @@ fn codon_executing(
         &mut CellHand,
         &mut CellEnergy,
         &mut CellMemory,
+        &mut Children,
         &Transform,
     )>,
+    codon_query: Query<&CodonEntity>,
     pool: Res<AsyncComputeTaskPool>,
 ) {
     for (
@@ -981,6 +998,7 @@ fn codon_executing(
         mut cell_hand,
         mut cell_energy,
         mut cell_memory,
+        mut children,
         cell_pos,
     ) in cell_query.iter_mut()
     {
@@ -992,10 +1010,17 @@ fn codon_executing(
         {
             continue; // If the timer hasn't ticked, skip this cell
         }
+        let mut errors = vec![];
+        
+        let cell_codons: Vec<&CodonEntity> = children.iter().map(|child| {
+            codon_query.get(*child)
+        })
+        .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
+        .collect();
         // gets current codon from hand position
         let current_codon_reader = cell_codon_executor.current_codon_reader;
-        let cur_codon = cell_genome.get_codon(current_codon_reader);
-        let prev_codon = cell_genome.get_codon(cell_codon_executor.last_executed_codon);
+        let cur_codon = cell_genome.codons.get(current_codon_reader).unwrap();
+        let prev_codon = cell_genome.codons.get(cell_codon_executor.last_executed_codon).unwrap();
         // does action depending on current codon
         // println!("Codon executing");
         loop {
@@ -1218,8 +1243,8 @@ fn update_cell_genome_executor(
         let result = query_cells.get(parent.0);
         let (codon_executor, genome) = result.unwrap();
         let codon_reader_pos = codon_executor.current_codon_reader;
-        let codon_width: f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
-        let codon_angle_step: f32 = 2.0 * PI / genome.codons.len() as f32;
+        let codon_width: f32 = CODON_SIZE * 16.0 / 22 as f32;
+        let codon_angle_step: f32 = 2.0 * PI / 22 as f32;
         let codon_angle: f32 = codon_angle_step * codon_reader_pos as f32;
         let reader_position = Vec2::new(
             CODON_RADIUS * codon_angle.cos(),
@@ -1231,9 +1256,19 @@ fn update_cell_genome_executor(
         executor_transform.rotation = Quat::from_rotation_z(codon_angle);
     }
 }
-// fn update_cell_genome(
-//     mut query_genome: Query<(&mut Transform), With<CodonEntity>>,
-//     mut query_cells: Query<(&Genome, &Children)>,
-// ) {
-//     f
-// }
+fn update_cell_genome(
+    mut query_genome: Query<(&Parent, &mut Transform, &CodonEntity), With<CodonEntity>>,
+    query_cells: Query<&Genome>,
+) {
+    for (parent, mut codon_transform, codon_entity) in query_genome.iter_mut() {
+        let genome = query_cells.get(parent.0).unwrap();
+        let codon_index = codon_entity.codon_index;
+        let codon = genome.codons.get(codon_index).unwrap();
+        let codon_width = CODON_SIZE * 16.0 / genome.codons.len() as f32 * codon.health;
+        codon_transform.scale = Vec3::new(
+            CODON_SIZE,
+            codon_width,
+            1.0,
+        );
+    }
+}
