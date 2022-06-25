@@ -44,8 +44,8 @@ const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
 
 const CODON_SIZE: f32 = 0.1;
 const CODON_RADIUS: f32 = 0.4;
-const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.3; // how much energy will be taken out of the cell for executing a codon
-const CODON_EXECUTION_RATE: f32 = 0.8; // Seconds between each codon execution for cell
+const CODON_ENERGY_COST_PER_EXECUTION: f32 = 0.03; // how much energy will be taken out of the cell for executing a codon
+const CODON_EXECUTION_RATE: f32 = 0.08; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
 const MAX_CODON_IDX: i32 = 60;
