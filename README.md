@@ -1,6 +1,9 @@
 # VirusGameRust
 [VirusGame](https://github.com/carykh/VirusGame/) with a spin on it, rewritten in Rust and Bevy.
 
+<img src="https://user-images.githubusercontent.com/11985242/175776480-ff635e2d-1c76-466f-9226-ea89f5a03cb3.png" width="612" height="540">
+
+
 ## Todos
 
 - [x] - Implement cells/walls that do nothing lol
