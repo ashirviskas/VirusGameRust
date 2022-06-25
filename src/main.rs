@@ -51,7 +51,7 @@ const CODON_HEALTH_COST_PER_EXECUTION: f32 = 0.03; // how much health will be ta
 const CODON_EXECUTION_RATE: f32 = 0.08; // Seconds between each codon execution for cell
 const CODON_EXECUTION_RATE_VARIATION: f32 = 0.8; // How much the execution rate can vary from the base rate by %
 
-const CODON_READ_MUTATION_RATE: f32 = 0.001; // Misread chance when reading codon
+const CODON_READ_MUTATION_RATE: f32 = 0.01; // Misread chance when reading codon
 const MAX_CODON_IDX: i32 = 60;
 const MIN_CODON_IDX: i32 = -60;
 
@@ -295,10 +295,10 @@ impl Genome {
             CodonType::RGL, //
             CodonType::Write,
             CodonType::RGL, //
-            CodonType::MoveHand, // TEST UGO
-            CodonType::Outward, // TEST UGO
-            CodonType::Write, // TEST UGO
-            CodonType::RGL, // TEST UGO
+            // CodonType::MoveHand, // TEST UGO
+            // CodonType::Outward, // TEST UGO
+            // CodonType::Write, // TEST UGO
+            // CodonType::RGL, // TEST UGO
         ];
 
         for codon_type in codon_types.iter() {
@@ -878,9 +878,9 @@ fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>)
     let ugo_direction = {
         let left_direction: bool = ugo_position.x < cell_pos.translation.x;
         let up_direction: bool = ugo_position.y < cell_pos.translation.y;
-        let direction = Vec2::new(
-            if left_direction { 1. } else { -1. },
-            if up_direction { 1. } else { -1. },
+        let direction = Vec2::new( // Spawning away from self
+            if left_direction { -1. } else { 1. },
+            if up_direction { -1. } else { 1. },
         );
 
         let mut random_speed =
