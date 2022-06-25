@@ -19,19 +19,22 @@ const TIME_STEP: f32 = 1.0 / 60.0;
 
 const WORLD_SIZE: f32 = 800.0;
 const WORLD_SCALE: f32 = 1.0;
-const MAX_FOOD: usize = 1200;
+const MAX_FOOD: usize = 400;
 
-const WASTE_DISPAWN_TIMER: f32 = 0.5;
-const WASTE_DESPAWN_PER_TIMER: usize = 4;
+const FOOD_SPAWN_TIMER: f32 = 0.1;
+const FOOD_SPAWN_RATE: usize = 2;
+
+const WASTE_DISPAWN_TIMER: f32 = 0.6;
+const WASTE_DESPAWN_PER_TIMER: usize = 1;
 
 const CELL_Z_LAYER: f32 = 0.0;
 const CELL_WALL_Z_LAYER: f32 = 0.1;
+const CODON_READER_Z_LAYER: f32 = 0.15;
 const CODON_Z_LAYER: f32 = 0.2;
-const CODON_READER_Z_LAYER: f32 = 0.3;
 
-const CELL_SIZE: Vec2 = const_vec2!([40., 40.]);
+const CELL_SIZE: Vec2 = const_vec2!([60., 60.]);
 const DEFAULT_CELL_WALL_THICKNESS: f32 = 0.125;
-const GAP_BETWEEN_CELLS: f32 = 40. / 8.;
+const GAP_BETWEEN_CELLS: f32 = 0.;
 const FOOD_SIZE: f32 = 8.0;
 const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
@@ -54,7 +57,7 @@ const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
 const FOOD_COLOR: Color = Color::rgb(0.9, 0.1, 0.2);
 const WASTE_COLOR: Color = Color::rgb(0.5, 0.5, 0.2);
 
-const GENOME_READER_COLOR: Color = Color::rgba(0.8, 0.5, 0.5, 0.5);
+const GENOME_READER_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.8);
 
 fn main() {
     App::new()
@@ -76,12 +79,16 @@ fn main() {
         )
         .add_system(bevy::input::system::exit_on_esc_system)
         .add_system(energy_color_system)
-        .add_system(food_dispenser)
         .insert_resource(WasteDespawnTimer(Timer::from_seconds(
             WASTE_DISPAWN_TIMER,
             true,
         )))
+        .insert_resource(FoodSpawnTimer(Timer::from_seconds(
+            FOOD_SPAWN_TIMER,
+            true,
+        )))
         .add_system(waste_despawner)
+        .add_system(food_dispenser)
         .add_system(codon_executing)
         .add_system(update_cell_genome_executor)
         .run();
@@ -89,6 +96,8 @@ fn main() {
 
 #[derive(Component)]
 struct Particle;
+struct FoodSpawnTimer(Timer);
+
 
 struct WasteDespawnTimer(Timer);
 
@@ -863,13 +872,20 @@ fn check_for_collisions(
 
 fn food_dispenser(
     mut commands: Commands,
+    time: Res<Time>,
+    mut timer: ResMut<FoodSpawnTimer>, 
     food_query: Query<(&Particle, &Food)>,
     cells_query: Query<&Transform, (With<Collider>, Without<Food>)>,
 ) {
+    if !timer.0.tick(time.delta()).just_finished() {
+        // If timer did not finish, do nothing
+        return;
+    }
+    let mut spawned_num: usize = 0;
     // Check if we have enough food
     let center_vec = Vec2::new(0., 0.);
     let food_size_vec = Vec2::new(FOOD_SIZE, FOOD_SIZE);
-    if food_query.iter().count() < MAX_FOOD {
+    while food_query.iter().count() < MAX_FOOD && spawned_num < FOOD_SPAWN_RATE {
         let mut random_food_position: Vec2 = Vec2::new(0., 0.);
         loop {
             let mut found_empty_spot = true;
@@ -923,6 +939,8 @@ fn food_dispenser(
             .insert(Collider)
             .insert(Velocity(random_direction))
             .insert(Particle);
+        spawned_num += 1;
+        
     }
 }
 
@@ -1146,11 +1164,11 @@ fn waste_despawner(
     mut timer: ResMut<WasteDespawnTimer>,
     mut query: Query<Entity, With<Waste>>,
 ) {
-    let mut despawned = 0;
     if !timer.0.tick(time.delta()).just_finished() {
         // If timer did not finish, do nothing
         return;
     }
+    let mut despawned = 0;
     for entity in query.iter() {
         commands.entity(entity).despawn();
         despawned += 1;
@@ -1171,7 +1189,7 @@ fn update_cell_genome_executor(
         let (codon_executor, genome) = result.unwrap();
         let codon_reader_pos = codon_executor.current_codon_reader;
         let codon_width:f32 = CODON_SIZE * 16.0 / genome.codons.len() as f32;
-        let mut codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
+        let codon_angle_step:f32 = 2.0 * PI / genome.codons.len() as f32;
         let codon_angle:f32 = codon_angle_step * codon_reader_pos as f32;
         let reader_position = Vec2::new(
             CODON_RADIUS * codon_angle.cos(),
@@ -1179,7 +1197,7 @@ fn update_cell_genome_executor(
         );
         let reader_position = reader_position.extend(CODON_READER_Z_LAYER);
         executor_transform.translation = reader_position;
-        // transform.scale = Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0);
+        executor_transform.scale = Vec3::new(CODON_SIZE * 1.25, codon_width * 1.25, 1.0);
         executor_transform.rotation = Quat::from_rotation_z(codon_angle);
             // commands.spawn()
             // .insert_bundle(SpriteBundle {
