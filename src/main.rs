@@ -168,7 +168,9 @@ struct UGO {
 
 impl UGO {
     fn new(codons: &Vec<Codon>) -> UGO {
-        UGO { codons: codons.clone()}
+        UGO {
+            codons: codons.clone(),
+        }
     }
 }
 
@@ -295,10 +297,10 @@ impl Genome {
             CodonType::RGL, //
             CodonType::Write,
             CodonType::RGL, //
-            // CodonType::MoveHand, // TEST UGO
-            // CodonType::Outward, // TEST UGO
-            // CodonType::Write, // TEST UGO
-            // CodonType::RGL, // TEST UGO
+                            // CodonType::MoveHand, // TEST UGO
+                            // CodonType::Outward, // TEST UGO
+                            // CodonType::Write, // TEST UGO
+                            // CodonType::RGL, // TEST UGO
         ];
 
         for codon_type in codon_types.iter() {
@@ -427,8 +429,8 @@ impl Genome {
         let mut i = *start;
         for new_codon in new_codons {
             self.codons.insert(i, new_codon.clone());
-            i+=1;
-        }        
+            i += 1;
+        }
     }
 }
 
@@ -878,7 +880,8 @@ fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>)
     let ugo_direction = {
         let left_direction: bool = ugo_position.x < cell_pos.translation.x;
         let up_direction: bool = ugo_position.y < cell_pos.translation.y;
-        let direction = Vec2::new( // Spawning away from self
+        let direction = Vec2::new(
+            // Spawning away from self
             if left_direction { -1. } else { 1. },
             if up_direction { -1. } else { 1. },
         );
@@ -888,7 +891,13 @@ fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>)
         random_speed.x *= direction.x;
         random_speed.y *= direction.y;
 
-        random_speed
+        let random_direction_degrees = (random::<f32>() - 0.5) * 90.; // Spawning UGOs 90 degrees away from self
+        let random_direction = Vec2::new(
+            random_speed.x * random_direction_degrees.cos(),
+            random_speed.y * random_direction_degrees.sin(),
+        );
+
+        random_direction
     };
     let shape = shapes::Circle {
         radius: UGO_SIZE / 2.0,
@@ -942,9 +951,22 @@ fn loop_around(mut query: Query<(&mut Transform, &Velocity)>) {
 
 fn check_for_collisions(
     mut commands: Commands,
-    mut particle_query: Query<(Entity, &mut Velocity, &Transform, Option<&Food>, Option<&UGO>), With<Particle>>,
+    mut particle_query: Query<
+        (
+            Entity,
+            &mut Velocity,
+            &Transform,
+            Option<&Food>,
+            Option<&UGO>,
+        ),
+        With<Particle>,
+    >,
     mut collider_query: Query<
-        (&Transform, Option<(&mut Cell, &mut CellEnergy)>, Option<(&mut Genome, &mut CodonExecutor)>),
+        (
+            &Transform,
+            Option<(&mut Cell, &mut CellEnergy)>,
+            Option<(&mut Genome, &mut CodonExecutor)>,
+        ),
         (With<Collider>, Without<Particle>),
     >,
     mut collision_events: EventWriter<CollisionEvent>,
@@ -959,7 +981,9 @@ fn check_for_collisions(
         particle_query.iter_mut()
     {
         // check collision with walls
-        for (transform, mut maybe_cell_and_energy, mut maybe_genome_and_executor) in collider_query.iter_mut() {
+        for (transform, mut maybe_cell_and_energy, mut maybe_genome_and_executor) in
+            collider_query.iter_mut()
+        {
             let collision = collide(
                 particle_transform.translation,
                 particle_size,
