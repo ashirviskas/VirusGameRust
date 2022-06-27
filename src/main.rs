@@ -49,6 +49,7 @@ const FOOD_ENERGY: f32 = 30.0;
 const DEFAULT_CELL_ENERGY: f32 = 100.0;
 const ENERGY_RESOLUTION: f32 = 0.1;
 const CELL_ENERGY_LOSS_RATE: f32 = 0.05;
+const MAX_CELL_CODONS: usize = 45;
 
 const CODON_SIZE: f32 = 0.1;
 const CODON_RADIUS: f32 = 0.25;
@@ -106,6 +107,7 @@ fn main() {
         .add_system(food_dispenser)
         .add_system(codon_executing)
         .add_system(update_cell_genome_executor)
+        .add_system(change_cell_genome)
         .add_system(update_cell_genome)
         .run();
 }
@@ -277,15 +279,19 @@ impl CodonEntity {
 #[derive(Component)]
 struct Genome {
     codons: Vec<Codon>,
+    codon_entities: Vec<Entity>,
+    changed_codons: bool,
+    update_only: bool,
 }
 
 impl Genome {
     // default genome
-    fn new(genome: Vec<Codon>) -> Genome {
-        Genome { codons: genome }
+    fn new(genome: Vec<Codon>, child_builder: &mut Commands) -> Genome {
+        let mut codon_entities = Genome::create_codon_entities(&genome, child_builder);
+        Genome { codons: genome, codon_entities,changed_codons: false, update_only: false }
     }
 
-    fn default() -> Genome {
+    fn default(child_builder: &mut Commands) -> Genome {
         let mut codons = Vec::new();
         // OG first part
         let codon_types = [
@@ -348,7 +354,12 @@ impl Genome {
                 }
             }
         }
-        Genome::new(codons)
+        Genome::new(codons, child_builder)
+    }
+
+    fn create_codon_entities(codons: &Vec<Codon>, commands: &mut Commands) -> Vec<Entity> {
+        let mut codon_entities = spawn_codons(commands, &codons);
+        codon_entities
     }
 
     fn get_weakest_loc(&mut self) -> usize {
@@ -369,6 +380,7 @@ impl Genome {
             println!("Codon at {} has mutated because of low health", loc);
             self.mutate_codon_inplace(loc, true);
         }
+        self.update_only = true;
     }
     fn mutate_codon(&mut self, codon: &Codon) -> Codon {
         let mut new_codon = codon.clone();
@@ -423,14 +435,16 @@ impl Genome {
             }
             _ => {}
         }
+        self.update_only = true;
 
         new_codon
     }
 
     fn mutate_codon_inplace(&mut self, loc: usize, total_mutation: bool) {
-        let mut new_codon = self.mutate_codon(&self.codons[loc].clone());
+        let new_codon = self.mutate_codon(&self.codons[loc].clone());
         self.codons[loc].replace_from_other(&new_codon);
         println!("Codon at {} has mutated", loc,);
+        self.update_only = true;
     }
 
     fn read_genome(&mut self, start: i32, end: i32) -> Vec<Codon> {
@@ -471,6 +485,7 @@ impl Genome {
             self.codons[pos_u].replace_from_other(&new_codon);
             reading_hand_pos += 1;
         }
+        self.update_only = true;
     }
     fn insert_genes(&mut self, start: &usize, new_codons: &Vec<Codon>) {
         let mut i = *start;
@@ -478,6 +493,7 @@ impl Genome {
             self.codons.insert(i, new_codon.clone());
             i += 1;
         }
+        self.changed_codons = true;
     }
 }
 
@@ -749,10 +765,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             if cell_type == CellType::Cell {
                 let cell_wall = CellWall::new();
                 let cell = Cell::new();
-                let mut genome = Genome::default();
-                let cell_codon_entities = spawn_codons(&mut commands, &genome.codons);
-                let cell_genome_executor_entity =
-                    spawn_cell_genome_executor(&mut commands, &genome.codons);
                 let parent_cell = commands
                     .spawn_bundle(CellBundle::new(
                         SpriteBundle {
@@ -772,7 +784,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ))
                     .insert(CellType::Cell)
                     .insert(RigidBody::Fixed)
-                    .insert(genome)
                     .insert(CellMemory::new())
                     .insert(CodonExecutor::new())
                     .insert(CellHand::new())
@@ -790,12 +801,20 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     })
                     // .with_chi
                     .id();
+                
+                let mut genome = Genome::default(&mut commands);
+                // let cell_codon_entities = genome.spawn_codons(&mut commands, &mut asset_server);
+                let cell_genome_executor_entity =
+                    spawn_cell_genome_executor(&mut commands, &genome.codons);
                 commands
                     .entity(parent_cell)
-                    .push_children(&cell_codon_entities);
+                    .push_children(&genome.codon_entities);
                 commands
                     .entity(parent_cell)
                     .push_children(&[cell_genome_executor_entity]);
+                commands
+                    .entity(parent_cell)
+                    .insert(genome);
             } else if cell_type == CellType::Wall {
                 commands
                     .spawn()
@@ -862,7 +881,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 
     spawn_ugo(&mut commands, &Transform {
-        translation: Vec3::new(15.0, 15.0, 1.0),
+        translation: Vec3::new(-15.0, -15.0, 1.0),
+
         scale: Vec3::new(CELL_SIZE.x, CELL_SIZE.y, 1.0),
         ..default()
     }, &codons );
@@ -1123,6 +1143,7 @@ fn check_for_collisions(
     mut collider_query: Query<
         (
             &Transform,
+            // Entity,
             Option<(&mut Cell, &mut CellEnergy)>,
             Option<(&mut Genome, &mut CodonExecutor)>,
         ),
@@ -1167,9 +1188,18 @@ fn check_for_collisions(
                         // insert UGO genes to cell
                         let (genome, executor) = maybe_genome_and_executor.as_mut().unwrap();
                         let ugo = maybe_ugo.unwrap();
-                        genome.insert_genes(&executor.current_codon_reader, &ugo.codons);
-                        commands.entity(particle_entity).despawn_recursive();
-                        break;
+                        if genome.codons.len() + ugo.codons.len() > MAX_CELL_CODONS {
+                            // UGO has too many genes
+                        } else {
+                            genome.insert_genes(&executor.current_codon_reader, &ugo.codons);
+                            // despawn old cell codons
+                            // commands.entity(cell_entity).despawn_descendants();
+                            // // Spawning new genes for the UGO
+                            // spawn_codons(commands, &genome.codons);
+                            // spawn_cell_genome_executor(commands, &genome.codons);
+                            commands.entity(particle_entity).despawn_recursive();
+                            break;
+                        }
                     }
                 }
 
@@ -1573,14 +1603,38 @@ fn update_cell_genome_executor(
         executor_transform.rotation = Quat::from_rotation_z(codon_angle);
     }
 }
+fn change_cell_genome(
+    mut commands: Commands,
+    mut query_cells: Query<(&mut Genome, Entity)>,
+) {
+    for (mut genome, cell_entity) in query_cells.iter_mut() {
+        // if parent not found, skip
+        if !genome.changed_codons && !genome.update_only {
+            continue;
+        }
+        // popping codon entities and despawning them
+        if genome.changed_codons { 
+            while genome.codon_entities.len() > 0 {
+                let codon_entity = genome.codon_entities.pop().unwrap();
+                commands.entity(codon_entity).despawn();
+            }
+            // spawning codon entities
+            genome.codon_entities = spawn_codons(&mut commands, &genome.codons);
+
+            commands.entity(cell_entity).push_children(&genome.codon_entities);
+            genome.changed_codons = false;
+        }
+    }
+}
+
 fn update_cell_genome(
-    mut query_genome: Query<
+    mut query_codons: Query<
         (&Parent, &mut Transform, &mut Sprite, &CodonEntity),
         With<CodonEntity>,
     >,
     query_cells: Query<&Genome>,
 ) {
-    for (parent, mut codon_transform, mut sprite, codon_entity) in query_genome.iter_mut() {
+    for (parent, mut codon_transform, mut sprite, codon_entity) in query_codons.iter_mut() {
         // if parent not found, skip
         let genome = {
             match query_cells.get(parent.0) {
