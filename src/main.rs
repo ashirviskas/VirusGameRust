@@ -1079,7 +1079,7 @@ fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>)
         random_direction
     };
     let shape = shapes::Circle {
-        radius: UGO_SIZE / 2.0,
+        radius: 1.0 / 2.0,
         center: Vec2::new(0., 0.),
     };
     let ugo_entity = commands
@@ -1087,11 +1087,11 @@ fn spawn_ugo(commands: &mut Commands, cell_pos: &Transform, codons: &Vec<Codon>)
             &shape,
             DrawMode::Outlined {
                 fill_mode: FillMode::color(UGO_COLOR),
-                outline_mode: StrokeMode::new(Color::WHITE, 1.),
+                outline_mode: StrokeMode::new(Color::WHITE, 1. / 32.),
             },
             Transform {
                 translation: ugo_position.extend(UGO_Z_LAYER),
-                scale: Vec3::new(1.0, 1.0, 1.0),
+                scale: Vec3::new(UGO_SIZE, UGO_SIZE, 1.0),
                 ..default()
             },
         ))
